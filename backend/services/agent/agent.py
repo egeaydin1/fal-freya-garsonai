@@ -1,6 +1,6 @@
-from brain import Brain
-from stt_model import STT
-from tts_model import TTS
+from .brain import Brain
+from .stt_model import STT
+from .tts_model import TTS
 
 #abstract class
 class Agent():
@@ -9,8 +9,8 @@ class Agent():
 		self.stt = STT()
 		self.brain = Brain()
 
-	def agent_listen(self, url:str):
-		return self.stt.speech_to_text(url)
+	def agent_listen(self, audio_path: str):
+		return self.stt.speech_to_text(audio_path)
 
 	def agent_think(self, prompt:str):
 		return self.brain.question_answering(prompt)
