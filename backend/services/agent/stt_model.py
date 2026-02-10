@@ -1,7 +1,5 @@
 import fal_client
 from dotenv import load_dotenv
-from brain import Brain
-from tts_model import TTS
 
 class STT:
 
@@ -21,12 +19,3 @@ class STT:
 		)
 		return (result)
 
-ag = Brain()
-tts = TTS()
-stt = STT()
-
-text = ag.question_answering("selamlar bana ne önerirsiniz?")
-print("Before:", text)
-speech = tts.text_to_speech(text)
-text_after_stt = stt.speech_to_text(speech)
-print("After:", text)

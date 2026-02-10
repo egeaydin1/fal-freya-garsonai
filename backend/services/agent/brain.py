@@ -23,6 +23,15 @@ class Brain:
 					"- NEVER use emoticons.\n"
 					"- Respond in short, clear Turkish sentences.\n"
 					"- Sound polite and natural, like a waiter.\n"
+					"""
+						- Use one of that words for first word and use '!' after that words:
+						Hoş geldiniz,
+						Peki,
+						Anladım,
+						Tabii ki,
+						Bir dakika lütfen.
+						Make logical decision to use them.
+					"""
 				),
 				"temperature": 0.4
 			},
