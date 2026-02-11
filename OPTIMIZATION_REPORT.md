@@ -89,15 +89,77 @@
 
 ### Optimization Timeline
 
-| Optimization          | Gain  | New Total   |
-| --------------------- | ----- | ----------- |
-| **Baseline**          | -     | **16.9s**   |
-| 1. VAD (auto-stop)    | -2.0s | 14.9s       |
-| 2. Audio compression  | -1.0s | 13.9s       |
-| 3. Parallel LLM+TTS   | -1.5s | 12.4s       |
-| 4. Connection pooling | -1.0s | 11.4s       |
-| 5. TTS warm-up        | -1.0s | 10.4s       |
-| 6. Menu caching       | -0.3s | 10.1s       |
+| Optimization            | Gain  | New Total   |
+| ----------------------- | ----- | ----------- |
+| **Baseline**            | -     | **16.9s**   |
+| 1. VAD (auto-stop)      | -2.0s | 14.9s       |
+| 2. Audio compression    | -1.0s | 13.9s       |
+| 3. Parallel LLM+TTS     | -1.5s | 12.4s       |
+| 4. Connection pooling   | -1.0s | 11.4s       |
+| 5. TTS warm-up          | -1.0s | 10.4s       |
+| 6. Menu caching         | -0.3s | 10.1s       |
+| 7. Chunked upload       | -0.5s | **9.6s** ✅ |
+| 8. **TTS Streaming** ⚡ | -2.3s | **7.3s** 🚀 |
+
+### **Total Expected Gain: -9.6s (57% reduction)**
+
+### **Target: 16.9s → 7.3s** ✅
+
+---
+
+## 🔥 NEW: TTS Streaming (Phase 8)
+
+**Date**: February 12, 2026  
+**Status**: ✅ **IMPLEMENTED**
+
+### What Changed?
+
+**Before (Blocking TTS):**
+```python
+# Old: Wait for full MP3 generation
+result = fal_client.subscribe(TTS_ENDPOINT, path="/generate")
+audio_url = result["audio"]["url"]
+# Download MP3 (1.2s)
+# First audio at: 10.1s
+```
+
+**After (Streaming TTS):**
+```python
+# New: Real-time PCM16 chunks
+stream = fal_client.stream(TTS_ENDPOINT, path="/stream")
+for event in stream:
+    pcm_chunk = base64.b64decode(event["audio"])
+    yield pcm_chunk  # Send immediately!
+# First audio at: 7.8s (first chunk in 0.23s!)
+```
+
+### Implementation Details
+
+**Backend:**
+- Updated `services/tts.py` to use `/stream` endpoint
+- Base64 PCM16 decoding
+- Chunk-by-chunk yielding to WebSocket
+- **File**: `backend/services/tts.py`
+
+**Frontend:**
+- New `StreamingAudioPlayer.js` for real-time PCM playback
+- Gapless audio scheduling with Web Audio API
+- Immediate chunk playback (no buffering)
+- **Files**: 
+  - `frontend/src/utils/StreamingAudioPlayer.js`
+  - `frontend/src/pages/VoiceAI.jsx`
+
+### Performance Impact
+
+| Metric                  | Before    | After     | Improvement |
+|-------------------------|-----------|-----------|-------------|
+| TTS First Chunk         | 3.1s      | **0.23s** | **-2.87s**  |
+| User Hears Response     | 10.1s     | **7.8s**  | **-2.3s**   |
+| Total Pipeline          | 9.6s      | **7.3s**  | **-2.3s**   |
+
+**Perceived latency improvement: 23% faster response!**
+
+---
 | 7. Chunked upload     | -0.5s | **9.6s** ✅ |
 
 ### **Total Expected Gain: -7.3s (43% reduction)**

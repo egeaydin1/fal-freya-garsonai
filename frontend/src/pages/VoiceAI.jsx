@@ -7,7 +7,7 @@ import AIResponse from "../components/AIResponse";
 import Waveform from "../components/Waveform";
 import { VoiceActivityDetector } from "../utils/VoiceActivityDetector";
 import { AudioCompressor } from "../utils/AudioCompressor";
-import { SmartAudioPlayer } from "../utils/SmartAudioPlayer";
+import { StreamingAudioPlayer } from "../utils/StreamingAudioPlayer";
 
 export default function VoiceAI() {
   const { qrToken } = useParams();
@@ -25,12 +25,7 @@ export default function VoiceAI() {
   const vadRef = useRef(null);
   const vadIntervalRef = useRef(null);
   const compressorRef = useRef(new AudioCompressor());
-  const audioPlayerRef = useRef(
-    new SmartAudioPlayer({ minBufferDuration: 0.5 }),
-  );
-
-  // Audio playback - batch mode (MSE doesn't work with raw MP3)
-  const ttsAudioChunksRef = useRef([]);
+  const streamingPlayerRef = useRef(new StreamingAudioPlayer());
 
   useEffect(() => {
     return () => {
@@ -59,10 +54,16 @@ export default function VoiceAI() {
     };
 
     ws.onmessage = async (event) => {
-      // Handle binary audio chunks - stream to SmartAudioPlayer
+      // Handle binary audio chunks - STREAMING PCM16 from TTS
       if (event.data instanceof Blob) {
-        // Add chunk to smart player buffer
-        await audioPlayerRef.current.streamChunk(event.data);
+        const arrayBuffer = await event.data.arrayBuffer();
+        
+        // Add PCM chunk to streaming player (plays immediately)
+        await streamingPlayerRef.current.addPCMChunk(arrayBuffer);
+        
+        console.log(
+          `🎵 TTS chunk received: ${arrayBuffer.byteLength} bytes`,
+        );
         return;
       }
 
@@ -98,6 +99,21 @@ export default function VoiceAI() {
           console.log("AI complete:", data.data);
           break;
         case "tts_start":
+          setIsPlaying(true);
+          // Reset streaming player for new session
+          streamingPlayerRef.current.reset();
+          console.log("🎧 TTS streaming started");
+          break;
+        case "tts_complete":
+          // Finalize streaming (let remaining chunks play out)
+          streamingPlayerRef.current.finalize();
+          setIsPlaying(false);
+          setStatus("idle");
+          console.log("✅ TTS streaming complete");
+          break;
+        case "error":
+          setStatus(`Error: ${data.message}`);
+          break;
           setIsPlaying(true);
           // Reset audio player for new session
           audioPlayerRef.current.reset();

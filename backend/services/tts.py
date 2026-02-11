@@ -5,6 +5,7 @@ import asyncio
 from typing import AsyncGenerator
 import os
 import time
+import base64
 
 settings = get_settings()
 
@@ -13,49 +14,76 @@ os.environ['FAL_KEY'] = settings.FAL_KEY
 
 class TTSService:
     def __init__(self):
-        self.model = "freya-mypsdi253hbk/freya-tts/generate"
+        self.model = "freya-mypsdi253hbk/freya-tts"
         # Use pooled HTTP client instead of creating new one
         self.http_client = get_async_http_client()
         
     async def speak_stream(self, text: str, start_time: float = None) -> AsyncGenerator[bytes, None]:
         """
-        Convert text to speech using Freya TTS and stream audio
+        Convert text to speech using Freya TTS STREAMING
+        Returns PCM16 audio chunks as they are generated (real-time)
         """
+        chunk_count = 0
+        total_bytes = 0
+        first_chunk_time = None
+        
         try:
-            print(f"🔊 TTS: Generating speech for: {text[:50]}...")
+            print(f"🔊 TTS Streaming: {text[:50]}...")
             
-            result = await asyncio.to_thread(
-                fal_client.subscribe,
+            # Use streaming endpoint for real-time audio
+            stream = fal_client.stream(
                 self.model,
                 arguments={
                     "input": text,
                     "voice": "zeynep",  # Turkish voice
-                    "response_format": "mp3",
-                    "speed": 1.1  # Slightly faster for reduced latency
-                }
+                    "speed": 1.15       # 15% faster for reduced latency
+                },
+                path="/stream"  # ⚡ STREAMING MODE!
             )
             
-            print(f"📊 TTS: Got result: {result}")
-            
-            if start_time:
-                elapsed = time.time() - start_time
-                print(f"[TTS inference done]: {elapsed:06.3f}s")
-            
-            # Download audio file and stream it
-            if isinstance(result, dict) and "audio" in result:
-                audio_url = result["audio"]["url"]
-                print(f"🎵 TTS: Downloading audio from {audio_url}")
+            for event in stream:
+                # Audio chunk received
+                if "audio" in event:
+                    chunk_count += 1
+                    
+                    # Decode base64 PCM data
+                    audio_b64 = event["audio"]
+                    pcm_bytes = base64.b64decode(audio_b64)
+                    
+                    total_bytes += len(pcm_bytes)
+                    
+                    # Log first chunk timing
+                    if chunk_count == 1 and start_time:
+                        first_chunk_time = time.time() - start_time
+                        print(f"⚡ [First TTS chunk]: {first_chunk_time:06.3f}s (chunk size: {len(pcm_bytes)} bytes)")
+                    
+                    # Yield immediately to WebSocket
+                    yield pcm_bytes
                 
-                async with self.http_client.stream("GET", audio_url) as response:
-                    async for chunk in response.aiter_bytes(chunk_size=32768):  # 32KB chunks for faster download
-                        if chunk:
-                            yield chunk
-                                
-                print("✅ TTS: Audio streaming complete")
-            else:
-                print(f"⚠️ TTS: Unexpected result format: {result}")
+                # Error handling
+                if "error" in event:
+                    error = event["error"]
+                    if not event.get("recoverable", False):
+                        print(f"❌ TTS error: {error}")
+                        raise RuntimeError(f"TTS error: {error}")
+                    else:
+                        print(f"⚠️ TTS recoverable error: {error}")
                 
+                # Stream complete
+                if event.get("done"):
+                    metadata = {
+                        "inference_time_ms": event.get("inference_time_ms"),
+                        "audio_duration_sec": event.get("audio_duration_sec")
+                    }
+                    
+                    if start_time:
+                        elapsed = time.time() - start_time
+                        print(f"✅ TTS Streaming complete: {chunk_count} chunks, {total_bytes} bytes, {elapsed:06.3f}s total")
+                        print(f"   Metadata: {metadata}")
+                    break
+            
         except Exception as e:
-            print(f"❌ TTS Error: {e}")
+            print(f"❌ TTS Streaming error: {e}")
             import traceback
             traceback.print_exc()
+            raise

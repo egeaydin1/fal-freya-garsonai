@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers import  voice_routes, auth_routes, restaurant_routes, menu_routes
 from core.database import engine, Base
 from services.tts_warmer import start_tts_warmer, stop_tts_warmer
-from services.stt_warmer import start_stt_warmer, stop_stt_warmer
+# Note: STT warmer disabled - real requests keep container warm
+# from services.stt_warmer import start_stt_warmer, stop_stt_warmer
 from contextlib import asynccontextmanager
 
 # Create database tables
@@ -19,15 +20,16 @@ async def lifespan(app: FastAPI):
     print("🚀 Starting TTS warmer...")
     start_tts_warmer(interval=30)  # Keep warm every 30s
     
-    print("🚀 Starting STT warmer...")
-    start_stt_warmer(interval=30)  # Keep warm every 30s
+    # STT warmer disabled - real user requests keep it warm enough
+    # print("🚀 Starting STT warmer...")
+    # start_stt_warmer(interval=30)
     
     yield
     
     # Shutdown: Stop warmers
     print("🛑 Stopping warmers...")
     stop_tts_warmer()
-    stop_stt_warmer()
+    # stop_stt_warmer()
 
 
 app = FastAPI(
