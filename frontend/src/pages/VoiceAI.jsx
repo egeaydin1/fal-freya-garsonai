@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import VoiceButton from "../components/VoiceButton";
+import StatusBadge from "../components/StatusBadge";
+import TranscriptDisplay from "../components/TranscriptDisplay";
+import AIResponse from "../components/AIResponse";
+import Waveform from "../components/Waveform";
 
 export default function VoiceAI() {
   const { qrToken } = useParams();
@@ -36,11 +41,9 @@ export default function VoiceAI() {
 
     ws.onmessage = async (event) => {
       if (event.data instanceof Blob) {
-        // Audio chunk received
         const audioBlob = event.data;
         playAudio(audioBlob);
       } else {
-        // JSON message
         const data = JSON.parse(event.data);
         console.log("WS message:", data);
 
@@ -85,14 +88,14 @@ export default function VoiceAI() {
   const playAudio = async (audioBlob) => {
     try {
       if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext ||
-          window.webkitAudioContext)();
+        audioContextRef.current = new (
+          window.AudioContext || window.webkitAudioContext
+        )();
       }
 
       const arrayBuffer = await audioBlob.arrayBuffer();
-      const audioBuffer = await audioContextRef.current.decodeAudioData(
-        arrayBuffer
-      );
+      const audioBuffer =
+        await audioContextRef.current.decodeAudioData(arrayBuffer);
 
       const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBuffer;
@@ -115,12 +118,15 @@ export default function VoiceAI() {
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+        if (
+          event.data.size > 0 &&
+          wsRef.current?.readyState === WebSocket.OPEN
+        ) {
           wsRef.current.send(event.data);
         }
       };
 
-      mediaRecorder.start(1000); // Send chunks every second
+      mediaRecorder.start(1000);
       setIsListening(true);
       setTranscript("");
       setAiResponse("");
@@ -134,7 +140,9 @@ export default function VoiceAI() {
   const stopListening = () => {
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      mediaRecorderRef.current.stream
+        .getTracks()
+        .forEach((track) => track.stop());
     }
     setIsListening(false);
     setStatus("processing");
@@ -161,38 +169,39 @@ export default function VoiceAI() {
           <div className="card-body items-center text-center">
             <h2 className="card-title text-3xl mb-4">GarsonAI</h2>
 
-            <div
-              className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 transition-all ${
-                isListening
-                  ? "bg-error animate-pulse"
-                  : isPlaying
-                  ? "bg-success animate-pulse"
-                  : "bg-primary"
-              }`}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-16 w-16 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-                />
-              </svg>
-            </div>
+            <VoiceButton isListening={isListening} isPlaying={isPlaying} />
 
-            <div className="badge badge-lg mb-4">
-              {status === "idle" && "Ready"}
-              {status === "connected" && "Connected"}
-              {status === "listening" && "Listening..."}
-              {status === "processing" && "Processing..."}
-              {status === "disconnected" && "Disconnected"}
-              {status.startsWith("Error") && status}
+            <StatusBadge status={status} />
+
+            {!isListening ? (
+              <button
+                className="btn btn-primary btn-lg"
+                onClick={startListening}
+              >
+                Start Talking
+              </button>
+            ) : (
+              <button className="btn btn-error btn-lg" onClick={stopListening}>
+                Stop
+              </button>
+            )}
+
+            <TranscriptDisplay transcript={transcript} />
+
+            <AIResponse response={aiResponse} />
+
+            <Waveform isPlaying={isPlaying} />
+          </div>
+        </div>
+
+        <div className="mt-6 text-center text-sm opacity-70">
+          <p>Speak naturally to place your order</p>
+          <p>Example: "I'd like two pizzas and a cola"</p>
+        </div>
+      </div>
+    </div>
+  );
+}
             </div>
 
             {!isListening ? (
