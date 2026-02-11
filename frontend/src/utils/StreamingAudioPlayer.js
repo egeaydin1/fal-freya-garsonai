@@ -22,7 +22,7 @@ export class StreamingAudioPlayer {
       )({
         sampleRate: this.sampleRate,
       });
-      
+
       console.log("🎧 StreamingAudioPlayer: Initialized");
     }
   }
@@ -39,7 +39,7 @@ export class StreamingAudioPlayer {
     try {
       // Convert PCM16 to AudioBuffer
       const audioBuffer = await this.pcmToAudioBuffer(pcmBytes);
-      
+
       // Add to queue
       this.audioQueue.push(audioBuffer);
 
@@ -66,7 +66,7 @@ export class StreamingAudioPlayer {
   async pcmToAudioBuffer(pcmBytes) {
     // PCM16 = 16-bit signed integers (Int16Array)
     const samples = new Int16Array(pcmBytes);
-    
+
     // Convert to Float32Array (Web Audio API format)
     const floatSamples = new Float32Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
@@ -107,7 +107,7 @@ export class StreamingAudioPlayer {
     // Schedule at precise time for gapless playback
     const currentTime = this.audioContext.currentTime;
     const startTime = Math.max(currentTime, this.nextStartTime);
-    
+
     source.start(startTime);
 
     // Update next start time
@@ -130,11 +130,11 @@ export class StreamingAudioPlayer {
     this.isPlaying = false;
     this.audioQueue = [];
     this.nextStartTime = 0;
-    
+
     if (this.audioContext) {
       this.audioContext.suspend();
     }
-    
+
     console.log("🛑 Playback stopped");
   }
 
@@ -143,11 +143,11 @@ export class StreamingAudioPlayer {
    */
   reset() {
     this.stop();
-    
+
     if (this.audioContext) {
       this.audioContext.resume();
     }
-    
+
     console.log("🔄 Player reset");
   }
 

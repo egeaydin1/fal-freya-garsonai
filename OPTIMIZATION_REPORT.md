@@ -115,6 +115,7 @@
 ### What Changed?
 
 **Before (Blocking TTS):**
+
 ```python
 # Old: Wait for full MP3 generation
 result = fal_client.subscribe(TTS_ENDPOINT, path="/generate")
@@ -124,6 +125,7 @@ audio_url = result["audio"]["url"]
 ```
 
 **After (Streaming TTS):**
+
 ```python
 # New: Real-time PCM16 chunks
 stream = fal_client.stream(TTS_ENDPOINT, path="/stream")
@@ -136,31 +138,34 @@ for event in stream:
 ### Implementation Details
 
 **Backend:**
+
 - Updated `services/tts.py` to use `/stream` endpoint
 - Base64 PCM16 decoding
 - Chunk-by-chunk yielding to WebSocket
 - **File**: `backend/services/tts.py`
 
 **Frontend:**
+
 - New `StreamingAudioPlayer.js` for real-time PCM playback
 - Gapless audio scheduling with Web Audio API
 - Immediate chunk playback (no buffering)
-- **Files**: 
+- **Files**:
   - `frontend/src/utils/StreamingAudioPlayer.js`
   - `frontend/src/pages/VoiceAI.jsx`
 
 ### Performance Impact
 
-| Metric                  | Before    | After     | Improvement |
-|-------------------------|-----------|-----------|-------------|
-| TTS First Chunk         | 3.1s      | **0.23s** | **-2.87s**  |
-| User Hears Response     | 10.1s     | **7.8s**  | **-2.3s**   |
-| Total Pipeline          | 9.6s      | **7.3s**  | **-2.3s**   |
+| Metric              | Before | After     | Improvement |
+| ------------------- | ------ | --------- | ----------- |
+| TTS First Chunk     | 3.1s   | **0.23s** | **-2.87s**  |
+| User Hears Response | 10.1s  | **7.8s**  | **-2.3s**   |
+| Total Pipeline      | 9.6s   | **7.3s**  | **-2.3s**   |
 
 **Perceived latency improvement: 23% faster response!**
 
 ---
-| 7. Chunked upload     | -0.5s | **9.6s** ✅ |
+
+| 7. Chunked upload | -0.5s | **9.6s** ✅ |
 
 ### **Total Expected Gain: -7.3s (43% reduction)**
 

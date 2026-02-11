@@ -57,13 +57,11 @@ export default function VoiceAI() {
       // Handle binary audio chunks - STREAMING PCM16 from TTS
       if (event.data instanceof Blob) {
         const arrayBuffer = await event.data.arrayBuffer();
-        
+
         // Add PCM chunk to streaming player (plays immediately)
         await streamingPlayerRef.current.addPCMChunk(arrayBuffer);
-        
-        console.log(
-          `🎵 TTS chunk received: ${arrayBuffer.byteLength} bytes`,
-        );
+
+        console.log(`🎵 TTS chunk received: ${arrayBuffer.byteLength} bytes`);
         return;
       }
 

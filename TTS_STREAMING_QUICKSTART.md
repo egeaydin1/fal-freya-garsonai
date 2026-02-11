@@ -3,6 +3,7 @@
 ## Test the New Streaming TTS
 
 ### Backend Test
+
 ```bash
 cd backend
 
@@ -15,6 +16,7 @@ python test_tts_streaming.py
 ```
 
 ### Full Integration Test
+
 ```bash
 # Terminal 1: Backend
 cd backend
@@ -34,6 +36,7 @@ npm run dev
 ```
 
 ## Expected Timeline
+
 ```
 [00.00] Start speaking
 [02.50] VAD auto-stop
@@ -48,12 +51,15 @@ npm run dev
 ## Troubleshooting
 
 ### "No streaming endpoint found"
+
 **Fix**: Ensure `path="/stream"` in `tts.py`
 
 ### "Audio plays too fast"
+
 **Fix**: Check sample rate is 16000 Hz in `StreamingAudioPlayer.js`
 
 ### "Choppy audio"
+
 **Fix**: Verify PCM normalization: `sample / 32768.0`
 
 ## Performance Metrics

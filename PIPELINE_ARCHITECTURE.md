@@ -292,12 +292,12 @@ playNext() {
   const source = audioContext.createBufferSource();
   source.buffer = audioBuffer;
   source.connect(audioContext.destination);
-  
+
   // Gapless scheduling
   const startTime = Math.max(audioContext.currentTime, this.nextStartTime);
   source.start(startTime);
   this.nextStartTime = startTime + audioBuffer.duration;
-  
+
   // Continue with next chunk
   source.onended = () => this.playNext();
 }
@@ -527,18 +527,18 @@ async def speak_stream(text: str, start_time: float):
     for event in stream:
         if "audio" in event:
             chunk_count += 1
-            
+
             # Base64 PCM16 decode
             pcm_bytes = base64.b64decode(event["audio"])
-            
+
             # First chunk timing
             if chunk_count == 1:
                 elapsed = time.time() - start_time
                 print(f"⚡ First TTS chunk: {elapsed:.3f}s")  # ~0.23s!
-            
+
             # IMMEDIATE yield to WebSocket
             yield pcm_bytes
-        
+
         if event.get("done"):
             break
 ```
@@ -552,12 +552,12 @@ async def speak_stream(text: str, start_time: float):
 
 **Streaming vs Blocking Karşılaştırma**:
 
-| Metric                | Blocking (/generate) | Streaming (/stream) | Improvement |
-|-----------------------|----------------------|---------------------|-------------|
-| TTS Inference         | 1.9s                 | 1.9s                | Same        |
-| **First Audio Chunk** | **3.1s**             | **0.23s**           | **-2.87s** ⚡|
-| User Hears Response   | 10.1s                | 7.8s                | **-2.3s**   |
-| Format                | MP3 (download)       | PCM16 (stream)      | Real-time   |
+| Metric                | Blocking (/generate) | Streaming (/stream) | Improvement   |
+| --------------------- | -------------------- | ------------------- | ------------- |
+| TTS Inference         | 1.9s                 | 1.9s                | Same          |
+| **First Audio Chunk** | **3.1s**             | **0.23s**           | **-2.87s** ⚡ |
+| User Hears Response   | 10.1s                | 7.8s                | **-2.3s**     |
+| Format                | MP3 (download)       | PCM16 (stream)      | Real-time     |
 
 **Kazanç**: -2.3s perceived latency (23% faster!)
 
@@ -831,12 +831,14 @@ GarsonAI voice pipeline, düşük latency ve yüksek kalite hedefleriyle tasarla
 **Tarih**: 12 Şubat 2026
 
 **Değişiklikler**:
+
 - ✅ `/generate` → `/stream` endpoint
 - ✅ MP3 download → PCM16 streaming
 - ✅ First chunk: 3.1s → **0.23s** (-2.87s)
 - ✅ User perception: 10.1s → **7.8s** (-2.3s)
 
 **Dosyalar**:
+
 - `backend/services/tts.py` - Streaming endpoint
 - `frontend/src/utils/StreamingAudioPlayer.js` - PCM playback
 - `frontend/src/pages/VoiceAI.jsx` - Integration
