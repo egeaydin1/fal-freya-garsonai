@@ -1,14 +1,12 @@
 from services.agent.agent import Agent
 from services.parser.parser import parse_sentences
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import json
 import uuid
 import asyncio
-import os
-import shutil
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -18,42 +16,37 @@ agent = Agent()
 # Storage for processing results
 processing_results = {}
 
-# Upload directory
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 
 class ChatStartResponse(BaseModel):
 	task_id: str
 	status: str
 
 
-def process_chat(task_id: str, audio_path: str):
-	"""Background task to process chat"""
+class TextInput(BaseModel):
+	text: str
+
+
+def process_chat_text(task_id: str, user_text: str):
+	"""Background task to process chat from text"""
 	try:
-		print(f"[{task_id}] Processing started")
+		print(f"[{task_id}] Processing started with text: {user_text}")
 		processing_results[task_id] = {
 			"status": "processing",
 			"ai_response": None,
 			"segments": []
 		}
 		
-		# 1. STT - Audio to text
-		stt_result = agent.agent_listen(audio_path)
-		user_text = stt_result.get('text', '') if isinstance(stt_result, dict) else stt_result
-		print(f"[{task_id}] User text: {user_text}")
-		
-		# 2. AI - Get response
+		# 1. AI - Get response (STT zaten frontend'de yapıldı)
 		ai_response = agent.agent_think(user_text)
 		print(f"[{task_id}] AI response: {ai_response}")
 		processing_results[task_id]["ai_response"] = ai_response
 		processing_results[task_id]["status"] = "tts_processing"
 		
-		# 3. Parse - Split into sentences
+		# 2. Parse - Split into sentences
 		parsed_sentences = parse_sentences(ai_response)
 		print(f"[{task_id}] Parsed {len(parsed_sentences)} sentences")
 		
-		# 4. TTS - Convert each sentence to speech
+		# 3. TTS - Convert each sentence to speech
 		for i, sentence in enumerate(parsed_sentences):
 			audio_url = agent.agent_speak(sentence)
 			segment = {
@@ -67,13 +60,6 @@ def process_chat(task_id: str, audio_path: str):
 		processing_results[task_id]["status"] = "completed"
 		print(f"[{task_id}] Processing completed")
 		
-		# Cleanup: Delete uploaded audio file
-		try:
-			if os.path.exists(audio_path):
-				os.remove(audio_path)
-		except Exception as cleanup_error:
-			print(f"[{task_id}] Cleanup error: {cleanup_error}")
-		
 	except Exception as e:
 		print(f"[{task_id}] Error: {str(e)}")
 		import traceback
@@ -83,22 +69,14 @@ def process_chat(task_id: str, audio_path: str):
 			"error": str(e)
 		}
 
-@router.post("/chat", response_model=ChatStartResponse)
-async def start_chat(audio: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+
+@router.post("/chat-text", response_model=ChatStartResponse)
+async def start_chat_text(text_input: TextInput, background_tasks: BackgroundTasks):
 	"""
-	Start chat processing and return task_id
+	Start chat processing from text (STT already done in frontend)
 	"""
 	task_id = str(uuid.uuid4())
-	
-	# Save uploaded audio file
-	file_extension = os.path.splitext(audio.filename)[1] or ".wav"
-	audio_filename = f"{task_id}{file_extension}"
-	audio_path = os.path.join(UPLOAD_DIR, audio_filename)
-	
-	with open(audio_path, "wb") as buffer:
-		shutil.copyfileobj(audio.file, buffer)
-	
-	background_tasks.add_task(process_chat, task_id, audio_path)
+	background_tasks.add_task(process_chat_text, task_id, text_input.text)
 	
 	return ChatStartResponse(
 		task_id=task_id,
