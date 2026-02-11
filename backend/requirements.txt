@@ -1,4 +1,11 @@
-dotenv
+python-dotenv
 fal-client
 fastapi
-uvicorn
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+pydantic-settings
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+websockets
