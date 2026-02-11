@@ -66,7 +66,7 @@ export const api = {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ status }),
-      }
+      },
     );
     return res.json();
   },

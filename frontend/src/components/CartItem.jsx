@@ -15,10 +15,7 @@ export default function CartItem({ item, onAdd, onRemove }) {
           -
         </button>
         <span>{item.quantity}</span>
-        <button
-          className="btn btn-xs"
-          onClick={() => onAdd(item.product)}
-        >
+        <button className="btn btn-xs" onClick={() => onAdd(item.product)}>
           +
         </button>
       </div>

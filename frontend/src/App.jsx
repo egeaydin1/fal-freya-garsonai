@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { useState } from "react";
 import LoginPage from "./components/LoginPage";
 import ManagerDashboard from "./pages/ManagerDashboard";
@@ -21,23 +21,21 @@ function App() {
   };
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LoginPage onLogin={handleLogin} />} />
-        <Route
-          path="/panel"
-          element={
-            token ? (
-              <ManagerDashboard onLogout={handleLogout} />
-            ) : (
-              <Navigate to="/" />
-            )
-          }
-        />
-        <Route path="/menu/:qrToken" element={<Menu />} />
-        <Route path="/voice/:qrToken" element={<VoiceAI />} />
-      </Routes>
-    </BrowserRouter>
+    <Routes>
+      <Route path="/" element={<LoginPage onLogin={handleLogin} />} />
+      <Route
+        path="/panel"
+        element={
+          token ? (
+            <ManagerDashboard onLogout={handleLogout} />
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
+      />
+      <Route path="/menu/:qrToken" element={<Menu />} />
+      <Route path="/voice/:qrToken" element={<VoiceAI />} />
+    </Routes>
   );
 }
 

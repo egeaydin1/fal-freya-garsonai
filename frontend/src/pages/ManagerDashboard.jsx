@@ -24,6 +24,10 @@ export default function ManagerDashboard({ onLogout }) {
     const res = await fetch("http://localhost:8000/api/restaurant/tables", {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === 401) {
+      onLogout();
+      return;
+    }
     if (res.ok) {
       const data = await res.json();
       setTables(data);
@@ -34,6 +38,10 @@ export default function ManagerDashboard({ onLogout }) {
     const res = await fetch("http://localhost:8000/api/menu/products", {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === 401) {
+      onLogout();
+      return;
+    }
     if (res.ok) {
       const data = await res.json();
       setProducts(data);
@@ -44,6 +52,10 @@ export default function ManagerDashboard({ onLogout }) {
     const res = await fetch("http://localhost:8000/api/restaurant/orders", {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === 401) {
+      onLogout();
+      return;
+    }
     if (res.ok) {
       const data = await res.json();
       setOrders(data);
@@ -60,8 +72,15 @@ export default function ManagerDashboard({ onLogout }) {
       body: JSON.stringify({ table_number: parseInt(tableNumber) }),
     });
 
+    if (res.status === 401) {
+      onLogout();
+      return;
+    }
     if (res.ok) {
       fetchTables();
+    } else {
+      const error = await res.json();
+      alert(error.detail || "Failed to create table");
     }
   };
 
@@ -92,8 +111,15 @@ export default function ManagerDashboard({ onLogout }) {
       }),
     });
 
+    if (res.status === 401) {
+      onLogout();
+      return;
+    }
     if (res.ok) {
       fetchProducts();
+    } else {
+      const error = await res.json();
+      alert(error.detail || "Failed to create product");
     }
   };
 

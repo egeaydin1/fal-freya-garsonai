@@ -20,6 +20,9 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
+    # Convert sub to string if it's an integer
+    if "sub" in to_encode and isinstance(to_encode["sub"], int):
+        to_encode["sub"] = str(to_encode["sub"])
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -28,8 +31,10 @@ def create_access_token(data: dict) -> str:
 def decode_token(token: str):
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        print(f"✓ Token decoded successfully: {payload}")
         return payload
-    except JWTError:
+    except JWTError as e:
+        print(f"✗ JWT decode error: {e}")
         return None
 
 async def get_current_restaurant(
@@ -37,15 +42,25 @@ async def get_current_restaurant(
     db: Session = Depends(get_db)
 ) -> Restaurant:
     token = credentials.credentials
+    print(f"Received token: {token[:50]}...")
     payload = decode_token(token)
     
     if payload is None:
+        print("✗ Token payload is None")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials"
         )
     
-    restaurant_id: int = payload.get("sub")
+    restaurant_id_str = payload.get("sub")
+    if restaurant_id_str is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+    
+    restaurant_id: int = int(restaurant_id_str)
+    print(f"Restaurant ID from token: {restaurant_id}")
     if restaurant_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -54,9 +69,11 @@ async def get_current_restaurant(
     
     restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
     if restaurant is None:
+        print(f"✗ Restaurant not found with ID: {restaurant_id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Restaurant not found"
         )
     
+    print(f"✓ Restaurant authenticated: {restaurant.name}")
     return restaurant

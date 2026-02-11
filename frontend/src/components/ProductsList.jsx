@@ -1,7 +1,11 @@
 import ProductForm from "./ProductForm";
 import ProductCard from "./ProductCard";
 
-export default function ProductsList({ products, onCreateProduct, onDeleteProduct }) {
+export default function ProductsList({
+  products,
+  onCreateProduct,
+  onDeleteProduct,
+}) {
   return (
     <div>
       <ProductForm onSubmit={onCreateProduct} />

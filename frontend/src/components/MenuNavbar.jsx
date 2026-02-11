@@ -1,4 +1,9 @@
-export default function MenuNavbar({ qrToken, cartCount, onVoiceClick, onCartClick }) {
+export default function MenuNavbar({
+  qrToken,
+  cartCount,
+  onVoiceClick,
+  onCartClick,
+}) {
   return (
     <div className="navbar bg-base-100 shadow-lg">
       <div className="flex-1">

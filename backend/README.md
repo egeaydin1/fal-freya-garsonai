@@ -17,11 +17,13 @@ Real-time voice AI waiter system with streaming STT, LLM, and TTS.
 
 1. Create `.env` from `.env.example`
 2. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 3. Run server:
+
 ```bash
 uvicorn main:app --reload
 ```
@@ -36,10 +38,12 @@ uvicorn main:app --reload
 ## API Endpoints
 
 ### Auth
+
 - POST `/api/auth/register`
 - POST `/api/auth/login`
 
 ### Restaurant (Protected)
+
 - GET `/api/restaurant/tables`
 - POST `/api/restaurant/tables`
 - DELETE `/api/restaurant/tables/{id}`
@@ -47,12 +51,14 @@ uvicorn main:app --reload
 - PATCH `/api/restaurant/orders/{id}/status`
 
 ### Menu
+
 - GET `/api/menu/products` (protected)
 - POST `/api/menu/products` (protected)
 - GET `/api/menu/{qr_token}` (public)
 - POST `/api/menu/{qr_token}/checkout` (public)
 
 ### Voice WebSocket
+
 - WS `/ws/voice/{table_id}`
 
 ## Voice Pipeline Flow

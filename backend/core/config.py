@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str
     
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 5256000  # ~10 years (practically no expiry)
     
     class Config:
         env_file = ".env"

@@ -1,6 +1,13 @@
 import CartItem from "./CartItem";
 
-export default function Cart({ cart, total, onAdd, onRemove, onCheckout, onClose }) {
+export default function Cart({
+  cart,
+  total,
+  onAdd,
+  onRemove,
+  onCheckout,
+  onClose,
+}) {
   return (
     <div className="drawer drawer-end drawer-open">
       <input type="checkbox" className="drawer-toggle" />

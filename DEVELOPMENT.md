@@ -3,6 +3,7 @@
 ## 🎯 System Overview
 
 GarsonAI is a production-ready voice AI waiter system with:
+
 - Real-time streaming voice pipeline (STT → LLM → TTS)
 - Restaurant management dashboard
 - QR-based table ordering system
@@ -75,51 +76,6 @@ npm install
 npm run dev
 ```
 
-## 🎤 Voice Pipeline Architecture
-
-```
-┌─────────────┐
-│   User      │
-│  Speaks     │
-└─────┬───────┘
-      │ Audio chunks
-      ▼
-┌─────────────┐
-│ WebSocket   │
-│ Connection  │
-└─────┬───────┘
-      │
-      ▼
-┌─────────────┐
-│   STT       │ Freya STT
-│ (Streaming) │ transcribe audio
-└─────┬───────┘
-      │ Text
-      ▼
-┌─────────────┐
-│    LLM      │ Gemini 2.5 Flash
-│ (Streaming) │ generate response
-└─────┬───────┘
-      │ Tokens
-      ▼
-┌─────────────┐
-│    TTS      │ Freya TTS (Zeynep)
-│ (Streaming) │ convert to speech
-└─────┬───────┘
-      │ Audio chunks
-      ▼
-┌─────────────┐
-│   User      │
-│   Hears     │
-└─────────────┘
-```
-
-**Key Features:**
-- All steps are **async** and **streaming**
-- No blocking between stages
-- Target latency: <2 seconds
-- Models kept warm (persistent clients)
-
 ## 🗄 Database Schema
 
 ```sql
@@ -173,33 +129,39 @@ order_items
 ## 🌐 API Documentation
 
 ### Public Endpoints
+
 - `GET /api/menu/{qr_token}` - Get menu for table
 - `POST /api/menu/{qr_token}/checkout` - Place order
 - `WS /ws/voice/{qr_token}` - Voice AI WebSocket
 
 ### Protected Endpoints (require JWT)
+
 - All `/api/restaurant/*` routes
 - All `/api/menu/products` CRUD routes
 
 ## 🎨 Frontend Pages
 
 ### 1. Login/Register (`/`)
+
 - Simple auth form
 - Switches between login/register
 - Stores JWT on success
 
 ### 2. Manager Dashboard (`/panel`)
+
 - **Tables Tab**: Create/delete tables, copy QR links
 - **Menu Tab**: Add/edit/delete products
 - **Orders Tab**: View and update order status
 
 ### 3. Menu (`/menu/{qrToken}`)
+
 - Public menu view
 - Cart management
 - Manual ordering
 - Voice AI button
 
 ### 4. Voice AI (`/voice/{qrToken}`)
+
 - Microphone interface
 - Real-time transcription
 - Streaming AI responses
@@ -208,6 +170,7 @@ order_items
 ## 🔊 WebSocket Protocol
 
 ### Client → Server
+
 ```javascript
 // Audio chunks (binary)
 ws.send(audioBlob);
@@ -217,6 +180,7 @@ ws.send(JSON.stringify({ type: "ping" }));
 ```
 
 ### Server → Client
+
 ```javascript
 // Status updates
 { type: "status", message: "processing" }
@@ -268,17 +232,20 @@ ws.send(JSON.stringify({ type: "ping" }));
 ## 📝 Common Tasks
 
 ### Add new API endpoint
+
 1. Create route in `backend/routers/`
 2. Add to `main.py` router includes
 3. Test with curl/Postman
 4. Add to frontend `services/api.js`
 
 ### Add new database model
+
 1. Add model in `backend/models/models.py`
 2. Import in `models/__init__.py`
 3. Restart server (auto-creates tables)
 
 ### Modify voice pipeline
+
 1. Edit `backend/services/stt.py|tts.py|llm.py`
 2. Update `backend/routers/voice_routes.py` flow
 3. Test via WebSocket
@@ -286,15 +253,18 @@ ws.send(JSON.stringify({ type: "ping" }));
 ## 🐛 Troubleshooting
 
 **Database connection error:**
+
 - Check PostgreSQL is running
 - Verify DATABASE_URL in .env
 
 **Voice not working:**
+
 - Check FAL_KEY and OPENROUTER_API_KEY
 - Verify microphone permissions
 - Check WebSocket connection in browser console
 
 **CORS errors:**
+
 - Backend and frontend must run on different ports
 - Check CORS middleware in main.py
 

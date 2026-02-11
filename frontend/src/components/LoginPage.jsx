@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function LoginPage({ onLogin }) {
+  const navigate = useNavigate();
   const [isRegister, setIsRegister] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -25,6 +27,7 @@ export default function LoginPage({ onLogin }) {
 
       if (res.ok) {
         onLogin(data.access_token, data.restaurant_id, data.restaurant_name);
+        navigate("/panel");
       } else {
         setError(data.detail || "Authentication failed");
       }
