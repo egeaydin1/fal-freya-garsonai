@@ -147,7 +147,28 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                         print(f"{'='*60}\n")
                     else:
                         # Fallback: No parallel TTS was triggered, do full TTS
-                        print(f"🔍 Fallback TTS: structured_data={structured_data}")
+                        print(f"🔍 Fallback TTS: Starting full TTS for complete response")
+                        
+                        if structured_data and "spoken_response" in structured_data:
+                            tts_text = structured_data["spoken_response"]
+                        else:
+                            tts_text = full_response
+                        
+                        await websocket.send_json({"type": "tts_start"})
+                        
+                        chunk_count = 0
+                        async for audio_chunk in tts_service.speak_stream(tts_text, start_time):
+                            if audio_chunk:
+                                if chunk_count == 0:
+                                    elapsed = time.time() - start_time
+                                    print(f"[Audio playback start]: {elapsed:06.3f}s (fallback TTS first chunk)")
+                                chunk_count += 1
+                                await websocket.send_bytes(audio_chunk)
+                        
+                        await websocket.send_json({"type": "tts_complete"})
+                        elapsed = time.time() - start_time
+                        print(f"[COMPLETE] Total pipeline (with fallback TTS): {elapsed:06.3f}s")
+                        print(f"{'='*60}\n")
                         if structured_data and "spoken_response" in structured_data:
                             spoken_text = structured_data["spoken_response"]
                             print(f"🗣️ TTS: Will synthesize: {spoken_text}")

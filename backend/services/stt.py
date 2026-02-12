@@ -5,6 +5,8 @@ from typing import AsyncGenerator
 import tempfile
 import os
 import time
+import httpx
+import io
 
 settings = get_settings()
 
@@ -15,51 +17,78 @@ class STTService:
     def __init__(self):
         # Using whisper-small for better latency (2-3x faster than base)
         self.model = "freya-mypsdi253hbk/freya-stt/generate"
+        self.http_client = httpx.AsyncClient(timeout=60.0)
+        self.api_url = "https://queue.fal.run/freya-mypsdi253hbk/freya-stt/generate"
         
     async def transcribe_stream(self, audio_data: bytes, start_time: float) -> str:
         """
-        Transcribe audio using Whisper - optimized with base64 to skip upload
+        Transcribe audio using Whisper - DIRECT multipart POST (CDN bypass)
         """
         temp_file_path = None
         try:
+            t0 = time.time()
             print(f"🎤 STT: Received {len(audio_data)} bytes")
             
-            # Try base64 audio first (faster - no upload)
+            # 🚀 STRATEGY 1: Direct multipart/form-data POST (NO CDN UPLOAD)
             try:
-                import base64
-                audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+                print("⚡ STT: Using direct binary POST (CDN bypass)")
                 
-                print("🚀 STT: Using base64 audio (no upload)")
-                result = await asyncio.to_thread(
-                    fal_client.subscribe,
-                    self.model,
-                    arguments={
-                        "audio": audio_b64,
-                        "task": "transcribe",
-                        "language": "tr",
-                        "chunk_level": "segment"
-                    }
+                # Create file-like object from bytes
+                files = {
+                    "audio": ("audio.webm", io.BytesIO(audio_data), "audio/webm")
+                }
+                
+                data = {
+                    "task": "transcribe",
+                    "language": "tr",
+                    "chunk_level": "segment"
+                }
+                
+                headers = {
+                    "Authorization": f"Key {settings.FAL_KEY}"
+                }
+                
+                t_request = time.time()
+                response = await self.http_client.post(
+                    self.api_url,
+                    files=files,
+                    data=data,
+                    headers=headers
                 )
                 
+                t_response = time.time()
+                print(f"📡 STT: HTTP request took {t_response - t_request:.3f}s")
+                
+                if response.status_code != 200:
+                    print(f"⚠️ Direct POST failed ({response.status_code}), trying fal_client...")
+                    raise Exception(f"HTTP {response.status_code}")
+                
+                result = response.json()
                 print(f"📊 STT: Got result: {result}")
                 text = self._extract_text(result)
+                
                 elapsed = time.time() - start_time
-                print(f"[STT done]: {elapsed:06.3f}s")
+                request_time = time.time() - t0
+                print(f"✅ [STT done]: {elapsed:06.3f}s total | {request_time:.3f}s request")
                 return text
                 
             except Exception as e:
-                print(f"⚠️ Base64 failed, falling back to upload: {e}")
+                print(f"⚠️ Direct POST failed: {e}, falling back to fal_client...")
                 
-                # Fallback: Upload to CDN
+                # FALLBACK: Use fal_client with file upload
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_file:
                     temp_file.write(audio_data)
                     temp_file_path = temp_file.name
                 
                 print(f"📁 STT: Created temp file {temp_file_path}")
-                print("⬆️ STT: Uploading to fal.ai...")
-                audio_url = fal_client.upload_file(temp_file_path)
-                print(f"✅ STT: Uploaded to {audio_url}")
                 
+                t_upload = time.time()
+                print("⬆️ STT: Uploading to CDN...")
+                audio_url = fal_client.upload_file(temp_file_path)
+                upload_time = time.time() - t_upload
+                print(f"✅ STT: Uploaded to {audio_url} ({upload_time:.3f}s)")
+                
+                t_inference = time.time()
                 print("🤖 STT: Calling Whisper...")
                 result = await asyncio.to_thread(
                     fal_client.subscribe,
@@ -71,11 +100,13 @@ class STTService:
                         "chunk_level": "segment"
                     }
                 )
+                inference_time = time.time() - t_inference
                 
                 print(f"📊 STT: Got result: {result}")
                 text = self._extract_text(result)
+                
                 elapsed = time.time() - start_time
-                print(f"[STT done]: {elapsed:06.3f}s")
+                print(f"✅ [STT done]: {elapsed:06.3f}s total | upload: {upload_time:.3f}s | inference: {inference_time:.3f}s")
                 return text
             
         except Exception as e:

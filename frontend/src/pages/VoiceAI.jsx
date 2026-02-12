@@ -8,6 +8,7 @@ import Waveform from "../components/Waveform";
 import { VoiceActivityDetector } from "../utils/VoiceActivityDetector";
 import { AudioCompressor } from "../utils/AudioCompressor";
 import { StreamingAudioPlayer } from "../utils/StreamingAudioPlayer";
+import { AudioTrimmer } from "../utils/AudioTrimmer";
 
 export default function VoiceAI() {
   const { qrToken } = useParams();
@@ -25,6 +26,7 @@ export default function VoiceAI() {
   const vadRef = useRef(null);
   const vadIntervalRef = useRef(null);
   const compressorRef = useRef(new AudioCompressor());
+  const trimmerRef = useRef(new AudioTrimmer({ silenceThreshold: 0.01, silencePaddingMs: 100 }));
   const streamingPlayerRef = useRef(new StreamingAudioPlayer());
 
   useEffect(() => {
@@ -108,19 +110,6 @@ export default function VoiceAI() {
           setIsPlaying(false);
           setStatus("idle");
           console.log("✅ TTS streaming complete");
-          break;
-        case "error":
-          setStatus(`Error: ${data.message}`);
-          break;
-          setIsPlaying(true);
-          // Reset audio player for new session
-          audioPlayerRef.current.reset();
-          break;
-        case "tts_complete":
-          // Finalize playback (ensure all chunks play)
-          audioPlayerRef.current.finalize();
-          setIsPlaying(false);
-          setStatus("idle");
           break;
         case "error":
           setStatus(`Error: ${data.message}`);
@@ -225,7 +214,7 @@ export default function VoiceAI() {
     setIsListening(false);
     setStatus("processing");
 
-    // Send accumulated audio as single blob with compression
+    // Send accumulated audio as single blob with trimming + compression
     if (
       audioChunksRef.current.length > 0 &&
       wsRef.current?.readyState === WebSocket.OPEN
@@ -234,9 +223,15 @@ export default function VoiceAI() {
         type: "audio/webm",
       });
 
-      // Compress audio before sending
-      const compressedBlob =
-        await compressorRef.current.compressAudio(fullAudioBlob);
+      console.log(`📉 Original audio: ${fullAudioBlob.size} bytes`);
+
+      // ✂️ STEP 1: Trim silence from start/end (reduces inference time!)
+      const trimmedBlob = await trimmerRef.current.trimSilence(fullAudioBlob);
+
+      // 📦 STEP 2: Compress audio
+      const compressedBlob = await compressorRef.current.compressAudio(trimmedBlob);
+
+      console.log(`✅ Final audio: ${compressedBlob.size} bytes`);
 
       wsRef.current.send(compressedBlob);
       audioChunksRef.current = [];
