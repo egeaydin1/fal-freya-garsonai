@@ -5,249 +5,215 @@ import StatusBadge from "../components/StatusBadge";
 import TranscriptDisplay from "../components/TranscriptDisplay";
 import AIResponse from "../components/AIResponse";
 import Waveform from "../components/Waveform";
-import { VoiceActivityDetector } from "../utils/VoiceActivityDetector";
-import { AudioCompressor } from "../utils/AudioCompressor";
+import useVoiceSession, { VoiceMode } from "../hooks/useVoiceSession";
 import { StreamingAudioPlayer } from "../utils/StreamingAudioPlayer";
 
 export default function VoiceAI() {
   const { qrToken } = useParams();
   const navigate = useNavigate();
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState("");
-  const [aiResponse, setAiResponse] = useState("");
-  const [status, setStatus] = useState("idle");
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  const wsRef = useRef(null);
+  
+  // Full-duplex voice session hook
+  const {
+    mode,
+    partialTranscript,
+    finalTranscript,
+    aiResponse,
+    error,
+    initWebSocket,
+    startListening,
+    stopListening,
+    sendAudioChunk,
+    handleBargeIn,
+    cleanup,
+    setMediaRecorder,
+    setStream,
+    wsRef
+  } = useVoiceSession();
+  
+  const [displayedTranscript, setDisplayedTranscript] = useState("");
+  const [displayedAiResponse, setDisplayedAiResponse] = useState("");
+  
   const mediaRecorderRef = useRef(null);
-  const audioRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const vadRef = useRef(null);
-  const vadIntervalRef = useRef(null);
-  const compressorRef = useRef(new AudioCompressor());
+  const streamRef = useRef(null);
   const streamingPlayerRef = useRef(new StreamingAudioPlayer());
 
+  // Update displayed transcript (prefer final over partial)
+  useEffect(() => {
+    if (finalTranscript) {
+      setDisplayedTranscript(finalTranscript);
+    } else if (partialTranscript) {
+      setDisplayedTranscript(partialTranscript + "...");
+    }
+  }, [partialTranscript, finalTranscript]);
+  
+  // Update displayed AI response
+  useEffect(() => {
+    if (aiResponse) {
+      // Try to parse JSON structure if present
+      try {
+        if (aiResponse.includes("{") && aiResponse.includes("}")) {
+          const jsonStart = aiResponse.indexOf("{");
+          const jsonEnd = aiResponse.lastIndexOf("}") + 1;
+          const jsonStr = aiResponse.substring(jsonStart, jsonEnd);
+          const parsed = JSON.parse(jsonStr);
+          setDisplayedAiResponse(parsed.spoken_response || aiResponse);
+        } else {
+          setDisplayedAiResponse(aiResponse);
+        }
+      } catch (e) {
+        setDisplayedAiResponse(aiResponse);
+      }
+    }
+  }, [aiResponse]);
+  
+  // Map VoiceMode to legacy status for compatibility
+  const status = {
+    [VoiceMode.IDLE]: "idle",
+    [VoiceMode.LISTENING]: "listening", 
+    [VoiceMode.THINKING]: "processing",
+    [VoiceMode.SPEAKING]: "speaking"
+  }[mode] || "idle";
+  
+  const isListening = mode === VoiceMode.LISTENING;
+  const isPlaying = mode === VoiceMode.SPEAKING;
+
+  
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      cleanup();
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop();
       }
-      if (vadRef.current) {
-        vadRef.current.cleanup();
-      }
-      if (vadIntervalRef.current) {
-        clearInterval(vadIntervalRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
-
-  const connectWebSocket = () => {
-    const ws = new WebSocket(`ws://localhost:8000/ws/voice/${qrToken}`);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log("WebSocket connected");
-      setStatus("connected");
-    };
-
-    ws.onmessage = async (event) => {
-      // Handle binary audio chunks - STREAMING PCM16 from TTS
-      if (event.data instanceof Blob) {
-        const arrayBuffer = await event.data.arrayBuffer();
-
-        // Add PCM chunk to streaming player (plays immediately)
+  }, [cleanup]);
+  
+  // Initialize WebSocket connection
+  useEffect(() => {
+    if (qrToken) {
+      // Handle audio chunks from TTS
+      const handleAudioChunk = async (arrayBuffer) => {
         await streamingPlayerRef.current.addPCMChunk(arrayBuffer);
-
-        console.log(`🎵 TTS chunk received: ${arrayBuffer.byteLength} bytes`);
-        return;
-      }
-
-      // Handle JSON messages
-      const data = JSON.parse(event.data);
-      console.log("WS message:", data);
-
-      switch (data.type) {
-        case "status":
-          setStatus(data.message);
-          break;
-        case "transcript":
-          setTranscript(data.text);
-          break;
-        case "ai_token":
-          // Parse JSON and extract spoken_response
-          try {
-            const fullText = data.full_text;
-            if (fullText.includes("{") && fullText.includes("}")) {
-              const jsonStart = fullText.indexOf("{");
-              const jsonEnd = fullText.lastIndexOf("}") + 1;
-              const jsonStr = fullText.substring(jsonStart, jsonEnd);
-              const parsed = JSON.parse(jsonStr);
-              setAiResponse(parsed.spoken_response || fullText);
-            } else {
-              setAiResponse(fullText);
-            }
-          } catch (e) {
-            setAiResponse(data.full_text);
-          }
-          break;
-        case "ai_complete":
-          console.log("AI complete:", data.data);
-          break;
-        case "tts_start":
-          setIsPlaying(true);
-          // Reset streaming player for new session
-          streamingPlayerRef.current.reset();
-          console.log("🎧 TTS streaming started");
-          break;
-        case "tts_complete":
-          // Finalize streaming (let remaining chunks play out)
-          streamingPlayerRef.current.finalize();
-          setIsPlaying(false);
-          setStatus("idle");
-          console.log("✅ TTS streaming complete");
-          break;
-        case "error":
-          setStatus(`Error: ${data.message}`);
-          break;
-          setIsPlaying(true);
-          // Reset audio player for new session
-          audioPlayerRef.current.reset();
-          break;
-        case "tts_complete":
-          // Finalize playback (ensure all chunks play)
-          audioPlayerRef.current.finalize();
-          setIsPlaying(false);
-          setStatus("idle");
-          break;
-        case "error":
-          setStatus(`Error: ${data.message}`);
-          break;
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setStatus("error");
-    };
-
-    ws.onclose = () => {
-      console.log("WebSocket closed");
-      setStatus("disconnected");
-    };
-  };
-
-  const playAudio = async (audioBlob) => {
-    try {
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
+        console.log(`🎵 TTS chunk: ${arrayBuffer.byteLength} bytes`);
       };
-
-      await audio.play();
-    } catch (err) {
-      console.error("Audio playback error:", err);
+      
+      initWebSocket(qrToken, handleAudioChunk);
+      
+      // Wait for WebSocket to be ready before allowing recording
+      const checkInterval = setInterval(() => {
+        if (wsRef.current?.readyState === 1) {
+          console.log('✅ WebSocket ready for recording');
+          clearInterval(checkInterval);
+        }
+      }, 100);
+      
+      // Cleanup on unmount or qrToken change
+      return () => {
+        clearInterval(checkInterval);
+        if (wsRef.current) {
+          wsRef.current.close();
+        }
+      };
     }
-  };
+  }, [qrToken, initWebSocket]);
 
-  const startListening = async () => {
+  // Start voice recording
+  const handleStartListening = async () => {
     try {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        connectWebSocket();
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      // Initialize VAD
-      if (!vadRef.current) {
-        vadRef.current = new VoiceActivityDetector({
-          silenceThreshold: 0.01,
-          silenceDuration: 1500,
+      // Wait for WebSocket to be ready
+      if (!wsRef.current || wsRef.current.readyState !== 1) {
+        console.warn('⚠️ WebSocket not ready, waiting...');
+        await new Promise((resolve) => {
+          const interval = setInterval(() => {
+            if (wsRef.current?.readyState === 1) {
+              clearInterval(interval);
+              resolve();
+            }
+          }, 100);
+          
+          // Timeout after 5 seconds
+          setTimeout(() => {
+            clearInterval(interval);
+            resolve();
+          }, 5000);
         });
       }
-      vadRef.current.initializeAnalyzer(stream);
-      vadRef.current.reset();
-
+      
+      if (wsRef.current?.readyState !== 1) {
+        alert('WebSocket bağlantısı hazır değil. Lütfen sayfayı yenileyin.');
+        return;
+      }
+      
+      console.log('🎤 Starting recording with WebSocket state:', wsRef.current.readyState);
+      
+      // Get audio stream with optimized constraints
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,      // Mono
+          sampleRate: 16000,    // 16kHz
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+      
+      // Setup MediaRecorder for chunk streaming
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: "audio/webm;codecs=opus",
-        audioBitsPerSecond: 16000, // 16kbps optimized for voice
+        audioBitsPerSecond: 16000, // 16kbps low bitrate
       });
       mediaRecorderRef.current = mediaRecorder;
-
-      // Clear previous chunks
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
+      
+      // Pass refs to hook
+      setMediaRecorder(mediaRecorder);
+      setStream(stream);
+      
+      // Initialize VAD and start listening
+      await startListening(stream);
+      
+      mediaRecorder.ondataavailable = async (event) => {
         if (event.data.size > 0) {
-          // Accumulate chunks instead of sending immediately
-          audioChunksRef.current.push(event.data);
+          // Send 500ms chunks to server for incremental STT
+          console.log(`📤 Streaming chunk: ${event.data.size} bytes, WS state: ${wsRef.current?.readyState}`);
+          await sendAudioChunk(event.data);
         }
       };
-
-      // Start VAD monitoring
-      vadIntervalRef.current = setInterval(() => {
-        const vadStatus = vadRef.current.analyzeAudioLevel();
-        if (vadStatus === "SILENCE_DETECTED") {
-          console.log("🎯 VAD: Auto-stopping due to silence");
-          stopListening();
-        }
-      }, 100); // Check every 100ms
-
-      mediaRecorder.start(1000);
-      setIsListening(true);
-      setTranscript("");
-      setAiResponse("");
-      setStatus("listening");
+      
+      // Start recording with 500ms chunks
+      mediaRecorder.start(500);
+      
+      console.log("✅ Full-duplex voice session started");
     } catch (err) {
-      console.error("Microphone error:", err);
-      alert("Cannot access microphone");
+      console.error("❌ Microphone error:", err);
+      alert("Cannot access microphone: " + err.message);
     }
   };
-
-  const stopListening = async () => {
-    // Clear VAD interval
-    if (vadIntervalRef.current) {
-      clearInterval(vadIntervalRef.current);
-      vadIntervalRef.current = null;
-    }
-
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream
-        .getTracks()
-        .forEach((track) => track.stop());
-    }
-    setIsListening(false);
-    setStatus("processing");
-
-    // Send accumulated audio as single blob with compression
-    if (
-      audioChunksRef.current.length > 0 &&
-      wsRef.current?.readyState === WebSocket.OPEN
-    ) {
-      const fullAudioBlob = new Blob(audioChunksRef.current, {
-        type: "audio/webm",
-      });
-
-      // Compress audio before sending
-      const compressedBlob =
-        await compressorRef.current.compressAudio(fullAudioBlob);
-
-      wsRef.current.send(compressedBlob);
-      audioChunksRef.current = [];
-    }
+  
+  // Stop voice recording
+  const handleStopListening = async () => {
+    stopListening();
+  };
+  
+  // Handle barge-in (interrupt AI and restart listening)
+  const handleInterrupt = async () => {
+    // Stop AI playback and send interrupt
+    handleBargeIn();
+    
+    // Wait a bit for interrupt to be processed
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Restart listening immediately
+    handleStartListening();
   };
 
   return (
     <div className="min-h-screen flex flex-col">
       <div className="navbar bg-base-100 shadow-lg">
         <div className="flex-1">
-          <a className="btn btn-ghost text-xl">Voice AI</a>
+          <a className="btn btn-ghost text-xl">Sesli Sipariş (Manuel Kontrol)</a>
         </div>
         <div className="flex-none">
           <button
@@ -263,35 +229,73 @@ export default function VoiceAI() {
         <div className="card w-full max-w-2xl bg-base-100 shadow-2xl">
           <div className="card-body items-center text-center">
             <h2 className="card-title text-3xl mb-4">GarsonAI</h2>
+            
+            {/* Voice Mode Badge */}
+            <div className="badge badge-lg badge-primary mb-2">
+              Mode: {mode.toUpperCase()}
+            </div>
 
             <VoiceButton isListening={isListening} isPlaying={isPlaying} />
 
             <StatusBadge status={status} />
 
-            {!isListening ? (
+            {/* Button logic: IDLE/THINKING -> Start button, LISTENING -> Stop button, SPEAKING -> Interrupt button */}
+            {mode === VoiceMode.IDLE || mode === VoiceMode.THINKING ? (
               <button
                 className="btn btn-primary btn-lg"
-                onClick={startListening}
+                onClick={handleStartListening}
+                disabled={mode === VoiceMode.THINKING}
               >
-                Start Talking
+                {mode === VoiceMode.THINKING ? 'İşleniyor...' : 'Konuşmaya Başla'}
               </button>
-            ) : (
-              <button className="btn btn-error btn-lg" onClick={stopListening}>
-                Stop
+            ) : mode === VoiceMode.LISTENING ? (
+              <button 
+                className="btn btn-error btn-lg" 
+                onClick={handleStopListening}
+              >
+                Durdur
               </button>
+            ) : mode === VoiceMode.SPEAKING ? (
+              <button 
+                className="btn btn-warning btn-lg" 
+                onClick={handleInterrupt}
+              >
+                Kes / Yeniden Konuş
+              </button>
+            ) : null}
+            
+            {/* Partial transcript indicator */}
+            {partialTranscript && !finalTranscript && (
+              <div className="alert alert-info shadow-lg mt-4">
+                <div>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current flex-shrink-0 w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  <span className="text-sm">Incremental STT active...</span>
+                </div>
+              </div>
             )}
 
-            <TranscriptDisplay transcript={transcript} />
+            <TranscriptDisplay transcript={displayedTranscript} />
 
-            <AIResponse response={aiResponse} />
+            <AIResponse response={displayedAiResponse} />
 
             <Waveform isPlaying={isPlaying} />
+            
+            {/* Error display */}
+            {error && (
+              <div className="alert alert-error shadow-lg mt-4">
+                <div>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <span>{error}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="mt-6 text-center text-sm opacity-70">
-          <p>Speak naturally to place your order</p>
-          <p>Example: "I'd like two pizzas and a cola"</p>
+          <p>✨ Manuel kontrol modu - İstediğiniz zaman konuşun</p>
+          <p>🎤 "Konuşmaya Başla" butonuna basın ve siparişinizi verin</p>
+          <p>🛑 AI konuşurken "Kes / Yeniden Konuş" ile sözünü kesebilirsiniz</p>
         </div>
       </div>
     </div>

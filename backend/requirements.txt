@@ -2,6 +2,7 @@ python-dotenv
 fal-client
 fastapi
 uvicorn[standard]
+uvloop
 sqlalchemy
 psycopg2-binary
 pydantic-settings

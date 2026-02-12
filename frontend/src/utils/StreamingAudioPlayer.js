@@ -139,6 +139,18 @@ export class StreamingAudioPlayer {
   }
 
   /**
+   * Immediately stop playback and clear queue (for barge-in)
+   * Unlike stop(), this doesn't suspend the AudioContext
+   */
+  stopImmediately() {
+    this.isPlaying = false;
+    this.audioQueue = [];
+    this.nextStartTime = this.audioContext ? this.audioContext.currentTime : 0;
+
+    console.log("🛑 Playback stopped immediately (barge-in)");
+  }
+
+  /**
    * Reset for new session
    */
   reset() {
