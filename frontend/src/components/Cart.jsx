@@ -38,7 +38,7 @@ export default function Cart({
               </div>
 
               <button className="btn btn-primary w-full" onClick={onCheckout}>
-                Checkout
+                Sepeti Onayla
               </button>
             </>
           )}

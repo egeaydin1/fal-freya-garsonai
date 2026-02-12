@@ -4,7 +4,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 from core.database import get_db
 from core.auth import get_current_restaurant
-from models.models import Restaurant, Product, Table, Order, OrderItem
+from models.models import Restaurant, Product, Table, Order, OrderItem, OrderStatus
+from websocket.manager import manager
+from datetime import datetime
 
 router = APIRouter(prefix="/api/menu", tags=["menu"])
 
@@ -121,7 +123,7 @@ class CheckoutRequest(BaseModel):
     items: List[CartItem]
 
 @router.post("/{qr_token}/checkout")
-def checkout(
+async def checkout(
     qr_token: str,
     request: CheckoutRequest,
     db: Session = Depends(get_db)
@@ -131,11 +133,14 @@ def checkout(
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
     
+    if not request.items:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+    
     # Create order
     order = Order(
         restaurant_id=table.restaurant_id,
         table_id=table.id,
-        status="preparing"
+        status=OrderStatus.preparing
     )
     db.add(order)
     db.flush()
@@ -158,4 +163,45 @@ def checkout(
     db.commit()
     db.refresh(order)
     
-    return {"order_id": order.id, "total": total}
+    # Notify restaurant via WebSocket
+    await manager.send_to_restaurant(table.restaurant_id, {
+        "type": "new_order",
+        "order_id": order.id,
+        "table_number": table.table_number,
+        "total_price": total
+    })
+    
+    return {
+        "success": True,
+        "order_id": order.id,
+        "total": total,
+        "message": "Siparişiniz alındı!"
+    }
+
+@router.post("/{qr_token}/request-check")
+async def request_check(
+    qr_token: str,
+    db: Session = Depends(get_db)
+):
+    """Customer requests the check for their table"""
+    table = db.query(Table).filter(Table.qr_token == qr_token).first()
+    
+    if not table:
+        raise HTTPException(status_code=404, detail="Table not found")
+    
+    # Mark table as requesting check
+    table.check_requested = True
+    table.check_requested_at = datetime.utcnow()
+    db.commit()
+    
+    # Notify restaurant via WebSocket
+    await manager.send_to_restaurant(table.restaurant_id, {
+        "type": "check_requested",
+        "table_number": table.table_number,
+        "table_id": table.id
+    })
+    
+    return {
+        "success": True,
+        "message": "Hesap isteğiniz iletildi!"
+    }

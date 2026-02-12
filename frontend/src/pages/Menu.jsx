@@ -70,9 +70,27 @@ export default function Menu() {
 
     if (res.ok) {
       const data = await res.json();
-      alert(`Order placed! Total: ${data.total} TL`);
+      alert(data.message || "Siparişiniz alındı!");
       setCart([]);
       setShowCart(false);
+    } else {
+      alert("Sipariş oluşturulamadı!");
+    }
+  };
+
+  const requestCheck = async () => {
+    const res = await fetch(
+      `http://localhost:8000/api/menu/${qrToken}/request-check`,
+      {
+        method: "POST",
+      },
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      alert(data.message || "Hesap isteğiniz iletildi!");
+    } else {
+      alert("Hesap isteği gönderilemedi!");
     }
   };
 
@@ -91,6 +109,12 @@ export default function Menu() {
       />
 
       <div className="container mx-auto p-4">
+        <div className="mb-4 flex justify-end">
+          <button className="btn btn-accent" onClick={requestCheck}>
+            💳 Hesap İste
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {products.map((product) => (
             <MenuProductCard

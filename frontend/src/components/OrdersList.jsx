@@ -1,6 +1,6 @@
 import OrderCard from "./OrderCard";
 
-export default function OrdersList({ orders, onUpdateStatus }) {
+export default function OrdersList({ orders, onUpdateStatus, onMarkPaid }) {
   return (
     <div className="space-y-4">
       {orders.map((order) => (
@@ -8,6 +8,7 @@ export default function OrdersList({ orders, onUpdateStatus }) {
           key={order.id}
           order={order}
           onUpdateStatus={onUpdateStatus}
+          onMarkPaid={onMarkPaid}
         />
       ))}
 

@@ -1,8 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from routers import  voice_routes, auth_routes, restaurant_routes, menu_routes
-from core.database import engine, Base
+from core.database import engine, Base, get_db
+from core.auth import get_current_restaurant
+from models.models import Restaurant
 from services.tts_warmer import start_tts_warmer, stop_tts_warmer
+from websocket.manager import manager
+from sqlalchemy.orm import Session
 # Note: STT warmer disabled - real requests keep container warm
 # from services.stt_warmer import start_stt_warmer, stop_stt_warmer
 from contextlib import asynccontextmanager
@@ -65,3 +69,17 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+@app.websocket("/ws/restaurant/{restaurant_id}")
+async def websocket_restaurant_endpoint(
+    websocket: WebSocket,
+    restaurant_id: int,
+    db: Session = Depends(get_db)
+):
+    """WebSocket endpoint for restaurant dashboard real-time updates"""
+    await manager.connect_restaurant(websocket, restaurant_id)
+    try:
+        while True:
+            # Keep connection alive and listen for messages
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect_restaurant(websocket, restaurant_id)
