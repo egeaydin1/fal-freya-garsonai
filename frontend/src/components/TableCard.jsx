@@ -1,6 +1,6 @@
 import { QRCodeSVG } from "qrcode.react";
 
-export default function TableCard({ table, onCopyQR, onDelete }) {
+export default function TableCard({ table, onCopyQR, onDelete, onPayAll }) {
   const menuUrl = `${window.location.origin}/menu/${table.qr_token}`;
   
   return (
@@ -9,7 +9,7 @@ export default function TableCard({ table, onCopyQR, onDelete }) {
         <div className="flex items-center justify-between">
           <h2 className="card-title">Masa {table.table_number}</h2>
           {table.check_requested && (
-            <div className="badge badge-warning gap-2">
+            <div className="badge badge-warning gap-2 animate-pulse">
               💳 Hesap İstiyor
             </div>
           )}
@@ -47,19 +47,30 @@ export default function TableCard({ table, onCopyQR, onDelete }) {
           )}
         </div>
         
-        <div className="card-actions justify-end mt-2">
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => onCopyQR(table.qr_token)}
-          >
-            Linki Kopyala
-          </button>
-          <button
-            className="btn btn-sm btn-error"
-            onClick={() => onDelete(table.id)}
-          >
-            Sil
-          </button>
+        <div className="card-actions flex-col gap-2 mt-2">
+          {/* Pay All Button - only when there are active orders */}
+          {table.active_orders_count > 0 && (
+            <button
+              className="btn btn-success w-full gap-2"
+              onClick={() => onPayAll(table.id)}
+            >
+              💳 Tümünü Öde ({table.current_total.toFixed(2)} ₺)
+            </button>
+          )}
+          <div className="flex gap-2 w-full">
+            <button
+              className="btn btn-sm btn-primary flex-1"
+              onClick={() => onCopyQR(table.qr_token)}
+            >
+              Linki Kopyala
+            </button>
+            <button
+              className="btn btn-sm btn-error flex-1"
+              onClick={() => onDelete(table.id)}
+            >
+              Sil
+            </button>
+          </div>
         </div>
       </div>
     </div>

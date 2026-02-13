@@ -30,18 +30,27 @@ class TTSService:
         try:
             print(f"🔊 TTS Streaming: {text[:50]}...")
             
-            # Use streaming endpoint for real-time audio
-            stream = fal_client.stream(
-                self.model,
-                arguments={
-                    "input": text,
-                    "voice": "zeynep",  # Turkish voice
-                    "speed": 1.15       # 15% faster for reduced latency
-                },
-                path="/stream"  # ⚡ STREAMING MODE!
-            )
+            # Non-blocking: create TTS stream in thread
+            def _create_tts_stream():
+                return fal_client.stream(
+                    self.model,
+                    arguments={
+                        "input": text,
+                        "voice": "zeynep",
+                        "speed": 1.15
+                    },
+                    path="/stream"
+                )
             
-            for event in stream:
+            _DONE = object()
+            stream = await asyncio.to_thread(_create_tts_stream)
+            stream_iter = iter(stream)
+            
+            while True:
+                event = await asyncio.to_thread(next, stream_iter, _DONE)
+                if event is _DONE:
+                    break
+                
                 # Audio chunk received
                 if "audio" in event:
                     chunk_count += 1

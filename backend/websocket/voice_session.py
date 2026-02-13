@@ -46,7 +46,8 @@ class VoiceSession:
     # Transcription
     partial_transcript: str = ""
     full_transcript: str = ""
-    last_stt_process_time: float = 0
+    last_partial_stt_time: float = 0
+    chunk_count: int = 0  # Track number of 500ms chunks received
     
     # LLM streaming
     llm_stream_task: Optional[asyncio.Task] = None
@@ -64,18 +65,19 @@ class VoiceSession:
     first_audio_time: float = 0
     
     # Configuration
-    MIN_CHUNK_DURATION: float = 1.2  # 1.2s minimum for partial STT
+    MIN_CHUNKS_FOR_PARTIAL: int = 3  # 3 x 500ms = 1.5s min audio for partial STT
+    MIN_STT_INTERVAL: float = 1.2    # Minimum 1.2s between partial STT calls
     SILENCE_THRESHOLD: float = 0.4   # 400ms silence triggers early LLM
     MAX_BUFFER_SIZE: int = 1024 * 1024  # 1MB max buffer
     
     def can_process_partial_stt(self) -> bool:
-        """Check if enough audio accumulated for partial STT."""
-        buffer_duration = len(self.audio_buffer) / (16000 * 2)  # 16kHz, 16-bit
-        time_since_last = time.time() - self.last_stt_process_time
+        """Check if enough audio accumulated for partial STT.
+        Uses chunk count (not byte size) since audio is compressed Opus."""
+        time_since_last = time.time() - self.last_partial_stt_time
         
         return (
-            buffer_duration >= self.MIN_CHUNK_DURATION and
-            time_since_last >= self.MIN_CHUNK_DURATION
+            self.chunk_count >= self.MIN_CHUNKS_FOR_PARTIAL and
+            time_since_last >= self.MIN_STT_INTERVAL
         )
     
     def should_trigger_llm(self) -> bool:
@@ -138,12 +140,14 @@ class VoiceSession:
         self.llm_full_response = ""
         self.llm_first_sentence = ""
         self.tts_started = False
+        self.chunk_count = 0
         self.state = "LISTENING"
     
     def add_audio_chunk(self, chunk: bytes):
         """Add audio chunk to buffer."""
         self.audio_buffer.extend(chunk)
         self.last_chunk_time = time.time()
+        self.chunk_count += 1
         
         # Safety: prevent buffer overflow
         if len(self.audio_buffer) > self.MAX_BUFFER_SIZE:
@@ -162,14 +166,15 @@ class VoiceSession:
             keep_overlap: Keep 500ms overlap for context continuity
         """
         if keep_overlap:
-            # Keep last 500ms (16kHz, 16-bit = 16000 bytes/sec)
-            overlap_size = 8000  # 500ms
+            # Keep last chunk for context continuity
+            overlap_size = 8000  # ~500ms at 16kHz PCM, or ~1s of Opus
             if len(self.audio_buffer) > overlap_size:
                 self.audio_buffer = bytearray(self.audio_buffer[-overlap_size:])
         else:
             self.audio_buffer.clear()
         
-        self.last_stt_process_time = time.time()
+        self.chunk_count = 0
+        self.last_partial_stt_time = time.time()
     
     def get_metrics(self) -> dict:
         """Get performance metrics for debugging."""

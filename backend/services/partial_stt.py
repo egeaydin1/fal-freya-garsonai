@@ -6,7 +6,6 @@ Supports real-time transcription while user is still speaking.
 import fal_client
 import asyncio
 import time
-import tempfile
 import os
 from typing import Optional
 from core.config import get_settings
@@ -28,9 +27,9 @@ class PartialSTTService:
     def __init__(self):
         self.model = "freya-mypsdi253hbk/freya-stt/generate"
         self.last_result = ""
-        self.processing_lock = asyncio.Lock()
+        self.processing_semaphore = asyncio.Semaphore(4)  # Allow 4 concurrent STT calls
         self.last_request_time = 0
-        self.min_request_interval = 0.5  # Minimum 500ms between requests to avoid rate limiting
+        self.min_request_interval = 0.15  # Minimum 150ms between requests
     
     async def transcribe_partial(
         self, 
@@ -54,24 +53,21 @@ class PartialSTTService:
                 "processing_time": 0.456
             }
         """
-        async with self.processing_lock:
+        async with self.processing_semaphore:
             process_start = time.time()
-            temp_file_path = None
             
             # Rate limiting: ensure minimum time between requests
             time_since_last = process_start - self.last_request_time
             if time_since_last < self.min_request_interval:
                 wait_time = self.min_request_interval - time_since_last
-                print(f"⏱️ Rate limiting: waiting {wait_time:.2f}s")
                 await asyncio.sleep(wait_time)
             
             self.last_request_time = time.time()
             
             try:
-                # Skip very small audio chunks (< 1KB or ~0.5s of audio)
-                # These are likely just noise and cause API errors
+                # Skip very small audio chunks (< 1KB)
                 if len(audio_data) < 1000:
-                    print(f"⏭️ Skipping tiny audio chunk: {len(audio_data)} bytes (< 1KB)")
+                    print(f"⏭️ Skipping tiny audio chunk: {len(audio_data)} bytes")
                     return {
                         "text": "",
                         "is_final": is_final,
@@ -81,14 +77,12 @@ class PartialSTTService:
                         "skipped": True
                     }
                 
-                print(f"🎤 Partial STT: {len(audio_data)} bytes (final={is_final})")
+                print(f"🎤 STT: {len(audio_data)} bytes (final={is_final})")
                 
-                # Upload audio to fal.ai CDN
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_file:
-                    temp_file.write(audio_data)
-                    temp_file_path = temp_file.name
-                
-                audio_url = await asyncio.to_thread(fal_client.upload_file, temp_file_path)
+                # Upload audio bytes directly to fal.ai CDN (no temp file)
+                audio_url = await asyncio.to_thread(
+                    fal_client.upload, audio_data, "audio/webm", file_name="audio.webm"
+                )
                 
                 # Call Freya STT with retry logic for 500 errors
                 max_retries = 3  # Increased from 2
@@ -104,9 +98,7 @@ class PartialSTTService:
                                 "audio_url": audio_url,
                                 "task": "transcribe",
                                 "language": "tr",
-                                "chunk_level": "segment",
-                                # Enable word-level timestamps for better streaming
-                                "word_timestamps": True
+                                "chunk_level": "segment"
                             }
                         )
                         break  # Success, exit retry loop
@@ -148,7 +140,7 @@ class PartialSTTService:
                 }
                 
             except Exception as e:
-                print(f"❌ Partial STT Error: {e}")
+                print(f"❌ STT Error: {e}")
                 import traceback
                 traceback.print_exc()
                 
@@ -160,10 +152,6 @@ class PartialSTTService:
                     "processing_time": time.time() - process_start,
                     "error": str(e)
                 }
-            finally:
-                # Clean up temporary file
-                if temp_file_path and os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
     
     async def transcribe_streaming(
         self,

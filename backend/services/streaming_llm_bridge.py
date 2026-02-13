@@ -10,6 +10,7 @@ import time
 from typing import AsyncGenerator, Dict, Any, Optional, Callable
 from services.llm import LLMService
 from services.tts import TTSService
+from services.tts_cache import get_tts_cache
 
 
 class StreamingLLMBridge:
@@ -22,6 +23,7 @@ class StreamingLLMBridge:
         self.llm = llm_service
         self.tts = tts_service
         self.active_tasks: Dict[str, asyncio.Task] = {}  # For barge-in cancellation
+        self.conversation_history: Dict[str, list] = {}  # session_id -> [{user, assistant}, ...]
         
     async def process_stream(
         self,
@@ -30,7 +32,8 @@ class StreamingLLMBridge:
         start_time: float,
         websocket_send_json: Callable,
         websocket_send_bytes: Callable,
-        session_id: str
+        session_id: str,
+        products: list = None
     ) -> Dict[str, Any]:
         """
         Process LLM stream with early TTS triggering
@@ -42,6 +45,7 @@ class StreamingLLMBridge:
             websocket_send_json: WebSocket JSON send callback
             websocket_send_bytes: WebSocket binary send callback
             session_id: Voice session ID (for task tracking)
+            products: List of Product ORM objects for recommendation resolution
             
         Returns:
             dict: Structured LLM response data
@@ -53,10 +57,13 @@ class StreamingLLMBridge:
         tts_task = None
         first_sentence = ""
         
+        # Get conversation history for this session
+        history = self.conversation_history.get(session_id, [])
+        
         print(f"🧠 LLM Bridge: Starting stream for transcript: {transcript[:100]}...")
         
         # Stream LLM tokens
-        async for llm_event in self.llm.generate_stream(transcript, menu_context, start_time):
+        async for llm_event in self.llm.generate_stream(transcript, menu_context, start_time, conversation_history=history):
             if llm_event["type"] == "token":
                 # Log first token latency
                 if not first_token_logged:
@@ -108,6 +115,43 @@ class StreamingLLMBridge:
                     "type": "ai_complete",
                     "data": structured_data
                 })
+                
+                # Send recommendation message if intent is recommend
+                if structured_data and structured_data.get("intent") == "recommend":
+                    recommendation = structured_data.get("recommendation")
+                    if recommendation and products:
+                        rec_product_id = recommendation.get("product_id")
+                        rec_reason = recommendation.get("reason", "")
+                        # Find product in the loaded products list
+                        matched = next((p for p in products if p.id == rec_product_id), None)
+                        if matched:
+                            allergen_list = [{"id": a.id, "name": a.name, "icon": a.icon} for a in getattr(matched, 'allergens', [])]
+                            await websocket_send_json({
+                                "type": "recommendation",
+                                "product": {
+                                    "id": matched.id,
+                                    "name": matched.name,
+                                    "description": matched.description,
+                                    "price": matched.price,
+                                    "image_url": matched.image_url,
+                                    "category": matched.category,
+                                    "allergens": allergen_list,
+                                    "reason": rec_reason
+                                }
+                            })
+                            print(f"📦 Recommendation sent: {matched.name}")
+                        else:
+                            print(f"⚠️ Recommendation product_id {rec_product_id} not found in menu")
+        
+        # Save conversation history (keep last 4 turns)
+        if structured_data:
+            if session_id not in self.conversation_history:
+                self.conversation_history[session_id] = []
+            self.conversation_history[session_id].append({
+                "user": transcript,
+                "assistant": structured_data.get("spoken_response", "")
+            })
+            self.conversation_history[session_id] = self.conversation_history[session_id][-4:]
         
         # Wait for parallel TTS or trigger fallback TTS
         if tts_task:
@@ -115,6 +159,17 @@ class StreamingLLMBridge:
             await tts_task
             # Remove from active tasks
             self.active_tasks.pop(f"{session_id}_tts", None)
+            
+            # Synthesize remaining text beyond the first sentence
+            if structured_data and structured_data.get("spoken_response"):
+                full_spoken = structured_data["spoken_response"]
+                if first_sentence and full_spoken.startswith(first_sentence):
+                    remaining = full_spoken[len(first_sentence):].strip()
+                    if remaining:
+                        print(f"🔊 Remaining TTS: '{remaining[:50]}...'")
+                        async for audio_chunk in self.tts.speak_stream(remaining, start_time):
+                            if audio_chunk:
+                                await websocket_send_bytes(audio_chunk)
             
             await websocket_send_json({"type": "tts_complete"})
             elapsed = time.time() - start_time
@@ -132,42 +187,31 @@ class StreamingLLMBridge:
     
     def _detect_sentence_boundary(self, text: str) -> tuple[bool, str]:
         """
-        Detect first complete sentence in text
-        Returns: (sentence_complete: bool, first_sentence: str)
+        Detect first complete spoken sentence in LLM JSON output.
+        Ignores JSON syntax and only looks inside spoken_response value.
         """
         if not text:
             return False, ""
         
-        # Look for sentence-ending punctuation (. ! ?)
-        match = re.search(r'[.!?]\s*', text)
-        if match:
-            first_sentence = text[:match.end()].strip()
-            return True, first_sentence
+        # Only detect boundaries within spoken_response value
+        spoken_match = re.search(r'"spoken_response"\s*:\s*"([^"]+)', text)
+        if spoken_match:
+            spoken_so_far = spoken_match.group(1)
+            # Look for sentence boundary in the spoken text
+            sent_match = re.search(r'[.!?]', spoken_so_far)
+            if sent_match:
+                return True, spoken_so_far[:sent_match.end()].strip()
         
         return False, ""
     
     def _extract_spoken_response(self, first_sentence: str, full_text: str) -> Optional[str]:
         """
-        Extract spoken response from JSON if present
-        Falls back to raw text if no JSON structure
+        Extract spoken response text for TTS.
+        first_sentence is already extracted from inside spoken_response value.
         """
-        # Check if response contains JSON structure
-        if '"spoken_response"' in full_text:
-            try:
-                # Try to extract from JSON
-                spoken_match = re.search(r'"spoken_response"\s*:\s*"([^"]+)"', full_text)
-                if spoken_match:
-                    spoken_text = spoken_match.group(1)
-                    # Check if first sentence is complete
-                    if re.search(r'[.!?]\s*$', spoken_text):
-                        return spoken_text
-                    # If not complete, wait for more tokens
-                    return None
-            except Exception as e:
-                print(f"⚠️ JSON extraction error: {e}")
-        
-        # Fallback: use first_sentence raw
-        return first_sentence
+        if first_sentence and not first_sentence.startswith('{') and not first_sentence.startswith('```'):
+            return first_sentence
+        return None
     
     async def _stream_tts_parallel(
         self,
@@ -176,17 +220,37 @@ class StreamingLLMBridge:
         websocket_send_bytes: Callable
     ):
         """
-        Stream TTS audio chunks in parallel with LLM generation
+        Stream TTS audio chunks in parallel with LLM generation.
+        Uses TTS sentence cache for instant first-sentence playback.
         """
         chunk_count = 0
         try:
-            async for audio_chunk in self.tts.speak_stream(text, start_time):
-                if audio_chunk:
-                    if chunk_count == 0:
-                        elapsed = time.time() - start_time
-                        print(f"[Audio playback start]: {elapsed:06.3f}s (parallel TTS first chunk)")
+            tts_cache = get_tts_cache()
+            cached = tts_cache.get_cached_audio(text)
+            
+            if cached:
+                cached_audio, remaining_text = cached
+                elapsed = time.time() - start_time
+                print(f"⚡ [Cached TTS parallel]: {elapsed:06.3f}s — {len(cached_audio)} bytes instantly")
+                
+                CHUNK_SIZE = 4096
+                for i in range(0, len(cached_audio), CHUNK_SIZE):
+                    await websocket_send_bytes(cached_audio[i:i + CHUNK_SIZE])
                     chunk_count += 1
-                    await websocket_send_bytes(audio_chunk)
+                
+                if remaining_text:
+                    async for audio_chunk in self.tts.speak_stream(remaining_text, start_time):
+                        if audio_chunk:
+                            chunk_count += 1
+                            await websocket_send_bytes(audio_chunk)
+            else:
+                async for audio_chunk in self.tts.speak_stream(text, start_time):
+                    if audio_chunk:
+                        if chunk_count == 0:
+                            elapsed = time.time() - start_time
+                            print(f"[Audio playback start]: {elapsed:06.3f}s (parallel TTS first chunk)")
+                        chunk_count += 1
+                        await websocket_send_bytes(audio_chunk)
             
             print(f"✅ Parallel TTS complete: {chunk_count} chunks sent")
         except asyncio.CancelledError:
@@ -205,7 +269,7 @@ class StreamingLLMBridge:
     ):
         """
         Fallback TTS when parallel TTS wasn't triggered
-        (e.g., no sentence boundary detected during LLM stream)
+        Uses TTS sentence cache for instant first-sentence playback
         """
         print(f"🔍 Fallback TTS: structured_data={structured_data}")
         
@@ -217,17 +281,41 @@ class StreamingLLMBridge:
                 await websocket_send_json({"type": "tts_start"})
                 
                 chunk_count = 0
-                async for audio_chunk in self.tts.speak_stream(spoken_text, start_time):
-                    if audio_chunk:
-                        if chunk_count == 0:
-                            elapsed = time.time() - start_time
-                            print(f"[Audio playback start]: {elapsed:06.3f}s (fallback TTS)")
+                tts_cache = get_tts_cache()
+                cached = tts_cache.get_cached_audio(spoken_text)
+                
+                if cached:
+                    cached_audio, remaining_text = cached
+                    elapsed = time.time() - start_time
+                    print(f"⚡ [Cached TTS]: {elapsed:06.3f}s — sending {len(cached_audio)} bytes instantly")
+                    
+                    # Send cached audio immediately (near 0ms latency)
+                    # Split into ~4KB chunks for smooth streaming
+                    CHUNK_SIZE = 4096
+                    for i in range(0, len(cached_audio), CHUNK_SIZE):
+                        await websocket_send_bytes(cached_audio[i:i + CHUNK_SIZE])
                         chunk_count += 1
-                        await websocket_send_bytes(audio_chunk)
+                    
+                    # Synthesize remaining text if any
+                    if remaining_text:
+                        print(f"🔊 Synthesizing remaining: '{remaining_text[:50]}...'")
+                        async for audio_chunk in self.tts.speak_stream(remaining_text, start_time):
+                            if audio_chunk:
+                                chunk_count += 1
+                                await websocket_send_bytes(audio_chunk)
+                else:
+                    # No cache hit — full synthesis
+                    async for audio_chunk in self.tts.speak_stream(spoken_text, start_time):
+                        if audio_chunk:
+                            if chunk_count == 0:
+                                elapsed = time.time() - start_time
+                                print(f"[Audio playback start]: {elapsed:06.3f}s (fallback TTS)")
+                            chunk_count += 1
+                            await websocket_send_bytes(audio_chunk)
                 
                 await websocket_send_json({"type": "tts_complete"})
                 elapsed = time.time() - start_time
-                print(f"[COMPLETE] Total pipeline (fallback TTS): {elapsed:06.3f}s")
+                print(f"[COMPLETE] Total pipeline (fallback TTS): {elapsed:06.3f}s ({chunk_count} chunks)")
             else:
                 print("⚠️ No spoken_response to synthesize")
         else:
@@ -249,6 +337,10 @@ class StreamingLLMBridge:
                     pass
             del self.active_tasks[task_key]
             print(f"✅ Session {session_id} streams cancelled")
+    
+    def clear_session_history(self, session_id: str):
+        """Clear conversation history for a session (on disconnect)"""
+        self.conversation_history.pop(session_id, None)
 
 
 # Singleton instance

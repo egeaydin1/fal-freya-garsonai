@@ -1,7 +1,7 @@
 import TableForm from "./TableForm";
 import TableCard from "./TableCard";
 
-export default function TablesList({ tables, onCreateTable, onDeleteTable }) {
+export default function TablesList({ tables, onCreateTable, onDeleteTable, onPayAll }) {
   const copyQR = (token) => {
     const url = `${window.location.origin}/menu/${token}`;
     navigator.clipboard.writeText(url);
@@ -19,6 +19,7 @@ export default function TablesList({ tables, onCreateTable, onDeleteTable }) {
             table={table}
             onCopyQR={copyQR}
             onDelete={onDeleteTable}
+            onPayAll={onPayAll}
           />
         ))}
       </div>

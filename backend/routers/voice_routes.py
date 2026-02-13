@@ -1,8 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from core.database import get_db
 from models.models import Table, Product
-from services import STTService
 from services.partial_stt import PartialSTTService
 from services.streaming_llm_bridge import get_llm_bridge
 from websocket.manager import manager
@@ -14,7 +13,6 @@ import time
 router = APIRouter()
 
 # Initialize services
-stt_service = STTService()
 partial_stt = PartialSTTService()
 llm_bridge = get_llm_bridge()
 session_manager = SessionManager()
@@ -40,125 +38,107 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
     
     print(f"✅ Table found: {table.table_number} (Restaurant ID: {table.restaurant_id})")
     
-    # Get menu context for LLM
-    products = db.query(Product).filter(
+    # Get menu context for LLM (with allergens and product IDs)
+    products = db.query(Product).options(joinedload(Product.allergens)).filter(
         Product.restaurant_id == table.restaurant_id,
         Product.is_available == True
     ).all()
     
-    menu_context = "\n".join([
-        f"- {p.name}: {p.price}TL ({p.description})"
-        for p in products
-    ])
+    def _build_product_line(p):
+        line = f"- [ID:{p.id}] {p.name}: {p.price}TL"
+        if p.description:
+            line += f" ({p.description})"
+        if p.category:
+            line += f" [Kategori: {p.category}]"
+        if p.allergens:
+            allergen_names = ", ".join(a.name for a in p.allergens)
+            line += f" [Alerjen: {allergen_names}]"
+        return line
+    
+    menu_context = "\n".join([_build_product_line(p) for p in products])
     
     # Create voice session for this connection
     session = session_manager.create_session(table_id, menu_context)
     print(f"🔗 Session created: {session.session_id}")
     
     # Track partial STT processing task
-    partial_stt_task = None
+    partial_stt_task: asyncio.Task = None
+    
+    async def _handle_partial_stt_result(partial_result: dict, ws: WebSocket, sess):
+        """Handle partial STT result from background task."""
+        nonlocal partial_stt_task
+        
+        if partial_result.get("skipped") or partial_result.get("error"):
+            if partial_result.get("error"):
+                print(f"⚠️ Partial STT failed: {partial_result.get('error')}")
+            sess.state = "LISTENING"
+            return
+        
+        if partial_result and partial_result.get("text"):
+            transcript_text = partial_result["text"]
+            confidence = partial_result.get("confidence", 0.0)
+            
+            # Merge with existing transcript
+            sess.partial_transcript = partial_stt.merge_transcripts(
+                sess.partial_transcript,
+                transcript_text
+            )
+            
+            print(f"📝 Partial: '{sess.partial_transcript}' (conf: {confidence:.2f})")
+            
+            # Send partial transcript to client
+            try:
+                await ws.send_json({
+                    "type": "partial_transcript",
+                    "text": sess.partial_transcript,
+                    "confidence": confidence,
+                    "is_final": False
+                })
+            except Exception:
+                pass  # WebSocket may have closed
+            
+            sess.state = "LISTENING"
+    
+    async def _run_partial_stt(audio_data: bytes, ws: WebSocket, sess):
+        """Run partial STT in background without blocking WebSocket loop."""
+        try:
+            partial_result = await partial_stt.transcribe_partial(
+                audio_data,
+                sess.start_time,
+                is_final=False
+            )
+            await _handle_partial_stt_result(partial_result, ws, sess)
+        except Exception as e:
+            print(f"⚠️ Background partial STT error: {e}")
+            sess.state = "LISTENING"
     
     try:
         while True:
             # Receive message from client
             data = await websocket.receive()
-            print(f"🔍 DEBUG: Received data - type: {type(data)}, keys: {list(data.keys()) if isinstance(data, dict) else 'N/A'}")
             
             if "bytes" in data:
                 # Audio chunk received (500ms) - full-duplex incremental processing
                 chunk = data["bytes"]
                 session.add_audio_chunk(chunk)
                 
-                print(f"📦 Audio chunk: {len(chunk)} bytes | Buffer: {len(session.audio_buffer)} bytes | State: {session.state}")
-                
-                # Instant UI feedback
-                await websocket.send_json({"type": "status", "message": "receiving"})
-                
                 # Check if we should process partial STT (every 1.2s worth of audio)
+                # Run as background task so WebSocket loop keeps receiving chunks
                 if session.can_process_partial_stt():
-                    print(f"⚡ Triggering partial STT (buffer: {len(session.audio_buffer)} bytes)")
+                    # Don't start new STT if previous is still running
+                    if partial_stt_task and not partial_stt_task.done():
+                        continue
+                    
+                    print(f"⚡ Triggering partial STT (buffer: {len(session.audio_buffer)} bytes, chunks: {session.chunk_count})")
                     session.state = "PROCESSING_STT"
+                    session.last_partial_stt_time = time.time()
+                    session.chunk_count = 0
                     
-                    # Process partial STT in background
+                    # Snapshot audio buffer and launch background task
                     audio_data = bytes(session.audio_buffer)
-                    partial_result = await partial_stt.transcribe_partial(
-                        audio_data,
-                        session.start_time,
-                        is_final=False
+                    partial_stt_task = asyncio.create_task(
+                        _run_partial_stt(audio_data, websocket, session)
                     )
-                    
-                    # Skip if transcription was skipped or failed
-                    if partial_result.get("skipped"):
-                        session.state = "LISTENING"
-                        session.last_partial_stt_time = time.time()
-                        continue
-                    
-                    if partial_result.get("error"):
-                        print(f"⚠️ Partial STT failed: {partial_result.get('error')}")
-                        session.state = "LISTENING"
-                        session.last_partial_stt_time = time.time()
-                        continue
-                    
-                    if partial_result and partial_result.get("text"):
-                        transcript_text = partial_result["text"]
-                        confidence = partial_result.get("confidence", 0.0)
-                        
-                        # Merge with existing transcript
-                        session.partial_transcript = partial_stt.merge_transcripts(
-                            session.partial_transcript,
-                            transcript_text
-                        )
-                        
-                        print(f"📝 Partial: '{session.partial_transcript}' (conf: {confidence:.2f})")
-                        
-                        # Send partial transcript to client
-                        await websocket.send_json({
-                            "type": "partial_transcript",
-                            "text": session.partial_transcript,
-                            "confidence": confidence,
-                            "is_final": False
-                        })
-                        
-                        session.last_partial_stt_time = time.time()
-                        session.state = "LISTENING"
-                        
-                        # Check if we should trigger LLM early (sentence boundary + silence)
-                        if session.should_trigger_llm():
-                            print(f"⚡⚡ Early LLM trigger! Transcript: '{session.partial_transcript[:100]}...'")
-                            
-                            # Transition to LLM generation
-                            session.state = "GENERATING_LLM"
-                            await websocket.send_json({
-                                "type": "status",
-                                "message": "thinking"
-                            })
-                            
-                            # Start LLM+TTS pipeline
-                            try:
-                                structured_data = await llm_bridge.process_stream(
-                                    transcript=session.partial_transcript,
-                                    menu_context=menu_context,
-                                    start_time=session.start_time,
-                                    websocket_send_json=websocket.send_json,
-                                    websocket_send_bytes=websocket.send_bytes,
-                                    session_id=session.session_id
-                                )
-                                
-                                # Transition to TTS streaming
-                                session.state = "STREAMING_TTS"
-                                
-                                # Reset for next turn
-                                session.partial_transcript = ""
-                                session.audio_buffer.clear()
-                                session.state = "IDLE"
-                                
-                            except Exception as e:
-                                print(f"❌ LLM/TTS error: {e}")
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "message": str(e)
-                                })
-                                session.state = "IDLE"
                 
                 continue
                 
@@ -172,6 +152,11 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                 elif message.get("type") == "interrupt":
                     # Barge-in: User interrupted AI mid-speech
                     print(f"🛑 BARGE-IN: User interrupted AI (session: {session.session_id})")
+                    
+                    # Cancel background partial STT
+                    if partial_stt_task and not partial_stt_task.done():
+                        partial_stt_task.cancel()
+                        partial_stt_task = None
                     
                     # Cancel active LLM/TTS streams
                     await llm_bridge.cancel_active_streams(session.session_id)
@@ -189,6 +174,11 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                     continue
                 
                 elif message.get("type") == "audio_end":
+                    # Cancel any running partial STT - we'll do final STT instead
+                    if partial_stt_task and not partial_stt_task.done():
+                        partial_stt_task.cancel()
+                        partial_stt_task = None
+                    
                     # User stopped speaking - process final STT
                     print(f"🎤 Audio end (buffer: {len(session.audio_buffer)} bytes, partial: '{session.partial_transcript}')")
                     
@@ -272,7 +262,8 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                             start_time=session.start_time,
                             websocket_send_json=websocket.send_json,
                             websocket_send_bytes=websocket.send_bytes,
-                            session_id=session.session_id
+                            session_id=session.session_id,
+                            products=products
                         )
                         
                         # Transition to TTS streaming
@@ -295,6 +286,9 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                     
     except WebSocketDisconnect:
         print(f"🔌 WebSocket disconnected: {session.session_id}")
+        if partial_stt_task and not partial_stt_task.done():
+            partial_stt_task.cancel()
+        llm_bridge.clear_session_history(session.session_id)
         await session_manager.remove_session(session.session_id)
         manager.disconnect(websocket, table_id)
     except Exception as e:

@@ -10,6 +10,7 @@ export default function ManagerDashboard({ onLogout }) {
   const [tables, setTables] = useState([]);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [allergens, setAllergens] = useState([]);
   const [dailyRevenue, setDailyRevenue] = useState(null);
   const wsRef = useRef(null);
 
@@ -21,6 +22,7 @@ export default function ManagerDashboard({ onLogout }) {
     fetchTables();
     fetchProducts();
     fetchOrders();
+    fetchAllergens();
     fetchDailyRevenue();
     
     // Request notification permission
@@ -123,6 +125,20 @@ export default function ManagerDashboard({ onLogout }) {
     }
   };
 
+  const fetchAllergens = async () => {
+    const res = await fetch("http://localhost:8000/api/menu/allergens", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      onLogout();
+      return;
+    }
+    if (res.ok) {
+      const data = await res.json();
+      setAllergens(data);
+    }
+  };
+
   const fetchOrders = async () => {
     const res = await fetch("http://localhost:8000/api/restaurant/orders", {
       headers: { Authorization: `Bearer ${token}` },
@@ -180,6 +196,31 @@ export default function ManagerDashboard({ onLogout }) {
 
     if (res.ok) {
       fetchTables();
+    }
+  };
+
+  const createAllergen = async (allergenData) => {
+    const res = await fetch("http://localhost:8000/api/menu/allergens", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(allergenData),
+    });
+    if (res.ok) {
+      fetchAllergens();
+    }
+  };
+
+  const deleteAllergen = async (id) => {
+    const res = await fetch(`http://localhost:8000/api/menu/allergens/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      fetchAllergens();
+      fetchProducts(); // refresh products since allergen refs may have changed
     }
   };
 
@@ -255,6 +296,27 @@ export default function ManagerDashboard({ onLogout }) {
     }
   };
 
+  const payAllTable = async (tableId) => {
+    if (!confirm("Bu masanın tüm siparişlerini ödenmiş olarak işaretlemek istiyor musunuz?")) return;
+    const res = await fetch(
+      `http://localhost:8000/api/restaurant/tables/${tableId}/pay-all`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      fetchOrders();
+      fetchTables();
+      fetchDailyRevenue();
+      alert(`Ödeme alındı! Toplam: ${data.total_paid.toFixed(2)} ₺ (${data.orders_count} sipariş)`);
+    } else {
+      const err = await res.json();
+      alert(err.detail || "Ödeme işlemi başarısız!");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-base-200">
       <Navbar restaurantName={restaurantName} onLogout={onLogout} />
@@ -283,14 +345,18 @@ export default function ManagerDashboard({ onLogout }) {
             tables={tables}
             onCreateTable={createTable}
             onDeleteTable={deleteTable}
+            onPayAll={payAllTable}
           />
         )}
 
         {activeTab === "products" && (
           <ProductsList
             products={products}
+            allergens={allergens}
             onCreateProduct={createProduct}
             onDeleteProduct={deleteProduct}
+            onCreateAllergen={createAllergen}
+            onDeleteAllergen={deleteAllergen}
           />
         )}
 

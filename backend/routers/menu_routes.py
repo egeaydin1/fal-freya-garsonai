@@ -1,14 +1,27 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
 from typing import List, Optional
 from core.database import get_db
 from core.auth import get_current_restaurant
-from models.models import Restaurant, Product, Table, Order, OrderItem, OrderStatus
+from models.models import Restaurant, Product, Table, Order, OrderItem, OrderStatus, Allergen
 from websocket.manager import manager
 from datetime import datetime
 
 router = APIRouter(prefix="/api/menu", tags=["menu"])
+
+# ── Allergen Schemas ──
+class AllergenCreate(BaseModel):
+    name: str
+    icon: Optional[str] = "⚠️"
+
+class AllergenResponse(BaseModel):
+    id: int
+    name: str
+    icon: str
+
+    class Config:
+        from_attributes = True
 
 class ProductCreate(BaseModel):
     name: str
@@ -16,6 +29,7 @@ class ProductCreate(BaseModel):
     price: float
     category: Optional[str] = None
     image_url: Optional[str] = None
+    allergen_ids: Optional[List[int]] = []
 
 class ProductResponse(BaseModel):
     id: int
@@ -25,9 +39,50 @@ class ProductResponse(BaseModel):
     category: Optional[str]
     image_url: Optional[str]
     is_available: bool
+    allergens: List[AllergenResponse] = []
     
     class Config:
         from_attributes = True
+
+# ── Allergen CRUD ──
+@router.get("/allergens", response_model=List[AllergenResponse])
+def get_allergens(
+    restaurant: Restaurant = Depends(get_current_restaurant),
+    db: Session = Depends(get_db)
+):
+    return db.query(Allergen).filter(Allergen.restaurant_id == restaurant.id).all()
+
+@router.post("/allergens", response_model=AllergenResponse)
+def create_allergen(
+    request: AllergenCreate,
+    restaurant: Restaurant = Depends(get_current_restaurant),
+    db: Session = Depends(get_db)
+):
+    allergen = Allergen(
+        restaurant_id=restaurant.id,
+        name=request.name,
+        icon=request.icon or "⚠️"
+    )
+    db.add(allergen)
+    db.commit()
+    db.refresh(allergen)
+    return allergen
+
+@router.delete("/allergens/{allergen_id}")
+def delete_allergen(
+    allergen_id: int,
+    restaurant: Restaurant = Depends(get_current_restaurant),
+    db: Session = Depends(get_db)
+):
+    allergen = db.query(Allergen).filter(
+        Allergen.id == allergen_id,
+        Allergen.restaurant_id == restaurant.id
+    ).first()
+    if not allergen:
+        raise HTTPException(status_code=404, detail="Allergen not found")
+    db.delete(allergen)
+    db.commit()
+    return {"success": True}
 
 # Restaurant endpoints (protected)
 @router.get("/products", response_model=List[ProductResponse])
@@ -35,7 +90,9 @@ def get_products(
     restaurant: Restaurant = Depends(get_current_restaurant),
     db: Session = Depends(get_db)
 ):
-    return restaurant.products
+    return db.query(Product).options(joinedload(Product.allergens)).filter(
+        Product.restaurant_id == restaurant.id
+    ).all()
 
 @router.post("/products", response_model=ProductResponse)
 def create_product(
@@ -51,6 +108,13 @@ def create_product(
         category=request.category,
         image_url=request.image_url
     )
+    # Attach allergens if provided
+    if request.allergen_ids:
+        allergens = db.query(Allergen).filter(
+            Allergen.id.in_(request.allergen_ids),
+            Allergen.restaurant_id == restaurant.id
+        ).all()
+        product.allergens = allergens
     db.add(product)
     db.commit()
     db.refresh(product)
@@ -77,6 +141,13 @@ def update_product(
     product.price = request.price
     product.category = request.category
     product.image_url = request.image_url
+    # Update allergens
+    if request.allergen_ids is not None:
+        allergens = db.query(Allergen).filter(
+            Allergen.id.in_(request.allergen_ids),
+            Allergen.restaurant_id == restaurant.id
+        ).all()
+        product.allergens = allergens
     db.commit()
     
     return product
@@ -108,7 +179,7 @@ def get_menu_by_token(qr_token: str, db: Session = Depends(get_db)):
     if not table:
         raise HTTPException(status_code=404, detail="Table not found")
     
-    products = db.query(Product).filter(
+    products = db.query(Product).options(joinedload(Product.allergens)).filter(
         Product.restaurant_id == table.restaurant_id,
         Product.is_available == True
     ).all()

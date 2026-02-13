@@ -18,9 +18,8 @@ class LLMService:
         # Cached menu context (shared across all requests)
         self._cached_menu = None
         
-        # Ultra-compact system prompt (~25 tokens)
-        self.system_prompt = """GarsonAI bot. Kısa yanıt (max 10 kelime).
-JSON only: {"spoken_response":"...","intent":"add|info|hi","product_name":"...","quantity":1}"""
+        # Compact system prompt — optimized for low token count + fast LLM response
+        self.system_prompt = "Sen GarsonAI. Türkçe, kısa, samimi, sadece düz JSON yanıt ver. Sadece spoken_response ve recommendation alanlarını doldur."
     
     def cache_menu(self, menu_context: str):
         """Cache menu context to avoid sending it repeatedly"""
@@ -28,7 +27,7 @@ JSON only: {"spoken_response":"...","intent":"add|info|hi","product_name":"...",
             self._cached_menu = menu_context
             print(f"📋 LLM: Menu cached ({len(menu_context)} chars)")
         
-    async def generate_stream(self, user_message: str, menu_context: str = "", start_time: float = None) -> AsyncGenerator[Dict[str, Any], None]:
+    async def generate_stream(self, user_message: str, menu_context: str = "", start_time: float = None, conversation_history: list = None) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Stream LLM responses using fal.ai with OpenRouter
         Uses cached menu context to reduce prompt tokens
@@ -38,14 +37,19 @@ JSON only: {"spoken_response":"...","intent":"add|info|hi","product_name":"...",
             if menu_context:
                 self.cache_menu(menu_context)
             
-            # Build compact prompt (menu reference cached on OpenRouter side)
-            # Note: OpenRouter supports prompt caching via prompt_prefix
+            # Build conversation history string
+            history_str = ""
+            if conversation_history:
+                turns = []
+                for turn in conversation_history[-3:]:
+                    turns.append(f"Müşteri: {turn['user']}\nGarson: {turn['assistant']}")
+                history_str = "\n".join(turns) + "\n\n"
+            
+            # Build compact prompt
             if self._cached_menu:
-                # Use cached menu reference
-                prompt = f"{self.system_prompt}\n\nMenü:\n{self._cached_menu}\n\nMüşteri: {user_message}\n\nYanıt ver (JSON formatında):"
+                prompt = f"{self.system_prompt}\n\nMenü:\n{self._cached_menu}\n\n{history_str}Müşteri: {user_message}\n\nYanıt ver (JSON formatında):"
             else:
-                # No menu available
-                prompt = f"{self.system_prompt}\n\nMüşteri: {user_message}\n\nYanıt ver (JSON formatında):"
+                prompt = f"{self.system_prompt}\n\n{history_str}Müşteri: {user_message}\n\nYanıt ver (JSON formatında):"
             
             print(f"🤖 LLM: Generating response for: {user_message}")
             print(f"📊 LLM: Prompt length: {len(prompt)} chars (~{len(prompt.split())} tokens)")
@@ -61,14 +65,19 @@ JSON only: {"spoken_response":"...","intent":"add|info|hi","product_name":"...",
                         "prompt": prompt,
                         "model": self.llm_model,
                         "temperature": 0.7,
-                        "max_tokens": 100  # Voice AI needs short responses
+                        "max_tokens": 200  # JSON response — enough for recommendation
                     }
                 )
             
+            # Non-blocking: create stream in thread, iterate with to_thread(next)
+            _DONE = object()
             stream = await asyncio.to_thread(sync_stream)
+            stream_iter = iter(stream)
             
-            for event in stream:
-                print(f"📨 LLM Event: {event}")
+            while True:
+                event = await asyncio.to_thread(next, stream_iter, _DONE)
+                if event is _DONE:
+                    break
                 
                 if isinstance(event, dict):
                     # Check for 'output' field (full text so far)
@@ -131,11 +140,21 @@ JSON only: {"spoken_response":"...","intent":"add|info|hi","product_name":"...",
             # Parse final structured response
             if full_response and full_response.strip():
                 try:
+                    # Strip markdown fences if present (```json ... ```)
+                    clean = full_response.strip()
+                    if clean.startswith("```"):
+                        # Remove opening fence (```json or ```)
+                        first_newline = clean.index("\n")
+                        clean = clean[first_newline + 1:]
+                    if clean.endswith("```"):
+                        clean = clean[:-3]
+                    clean = clean.strip()
+                    
                     # Try to extract JSON from response
-                    if "{" in full_response and "}" in full_response:
-                        json_start = full_response.index("{")
-                        json_end = full_response.rindex("}") + 1
-                        json_str = full_response[json_start:json_end]
+                    if "{" in clean and "}" in clean:
+                        json_start = clean.index("{")
+                        json_end = clean.rindex("}") + 1
+                        json_str = clean[json_start:json_end]
                         structured = json.loads(json_str)
                     else:
                         # No JSON found, use full response as spoken text
