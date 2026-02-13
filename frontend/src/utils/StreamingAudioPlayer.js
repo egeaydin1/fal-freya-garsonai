@@ -1,58 +1,49 @@
 /**
- * Streaming Audio Player for Real-Time PCM16 Playback
- * Plays audio chunks as they arrive from TTS streaming endpoint
- * No buffering delay - immediate playback
+ * Streaming Audio Player v2 for Real-Time PCM16 Playback
+ * - Plays first chunk IMMEDIATELY (no buffering)
+ * - Gapless playback via scheduled AudioBufferSourceNodes
+ * - Fires onPlaybackComplete when all chunks are done
+ * - Tracks playing state for VAD coordination
  */
 export class StreamingAudioPlayer {
   constructor(options = {}) {
-    this.sampleRate = options.sampleRate || 16000; // 16kHz PCM
+    this.sampleRate = options.sampleRate || 16000;
     this.audioContext = null;
     this.audioQueue = [];
     this.isPlaying = false;
     this.nextStartTime = 0;
+    this.onPlaybackComplete = options.onPlaybackComplete || null;
+    this._finalized = false;
+    this._chunksPlayed = 0;
+    this._totalChunks = 0;
   }
 
-  /**
-   * Initialize audio context (call on user interaction)
-   */
   async initialize() {
     if (!this.audioContext) {
-      this.audioContext = new (
-        window.AudioContext || window.webkitAudioContext
-      )({
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
         sampleRate: this.sampleRate,
       });
-
       console.log("🎧 StreamingAudioPlayer: Initialized");
     }
   }
 
-  /**
-   * Add PCM16 chunk and play immediately
-   * @param {ArrayBuffer} pcmBytes - Raw PCM16 audio data
-   */
   async addPCMChunk(pcmBytes) {
-    if (!this.audioContext) {
-      await this.initialize();
+    if (!this.audioContext) await this.initialize();
+
+    if (this.audioContext.state === "suspended") {
+      await this.audioContext.resume();
     }
 
     try {
-      // Convert PCM16 to AudioBuffer
       const audioBuffer = await this.pcmToAudioBuffer(pcmBytes);
-
-      // Add to queue
       this.audioQueue.push(audioBuffer);
+      this._totalChunks++;
 
-      // Start playback if not already playing
       if (!this.isPlaying) {
         this.isPlaying = true;
         this.nextStartTime = this.audioContext.currentTime;
         this.playNext();
       }
-
-      console.log(
-        `🎵 Chunk added: ${audioBuffer.duration.toFixed(3)}s (queue: ${this.audioQueue.length})`,
-      );
     } catch (error) {
       console.error("❌ Error processing PCM chunk:", error);
     }
@@ -91,36 +82,32 @@ export class StreamingAudioPlayer {
    */
   playNext() {
     if (this.audioQueue.length === 0) {
-      // Queue empty, wait for more chunks
-      this.isPlaying = false;
-      console.log("⏸️ Playback paused (waiting for chunks)");
+      // Queue empty
+      if (this._finalized) {
+        // All chunks played, we're truly done
+        this.isPlaying = false;
+        console.log("✅ Playback complete");
+        if (this.onPlaybackComplete) this.onPlaybackComplete();
+      } else {
+        this.isPlaying = false;
+      }
       return;
     }
 
     const audioBuffer = this.audioQueue.shift();
-
-    // Create buffer source
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(this.audioContext.destination);
 
-    // Schedule at precise time for gapless playback
     const currentTime = this.audioContext.currentTime;
     const startTime = Math.max(currentTime, this.nextStartTime);
-
     source.start(startTime);
-
-    // Update next start time
     this.nextStartTime = startTime + audioBuffer.duration;
+    this._chunksPlayed++;
 
-    // Schedule next chunk
     source.onended = () => {
       this.playNext();
     };
-
-    console.log(
-      `▶️ Playing chunk at ${startTime.toFixed(3)}s (${audioBuffer.duration.toFixed(3)}s)`,
-    );
   }
 
   /**
@@ -130,32 +117,28 @@ export class StreamingAudioPlayer {
     this.isPlaying = false;
     this.audioQueue = [];
     this.nextStartTime = 0;
+    this._finalized = false;
+    this._chunksPlayed = 0;
+    this._totalChunks = 0;
 
     if (this.audioContext) {
       this.audioContext.suspend();
     }
-
-    console.log("🛑 Playback stopped");
   }
 
-  /**
-   * Reset for new session
-   */
   reset() {
     this.stop();
-
     if (this.audioContext) {
       this.audioContext.resume();
     }
-
-    console.log("🔄 Player reset");
   }
 
-  /**
-   * Finalize playback (no more chunks coming)
-   */
   finalize() {
-    // Just let the queue play out
-    console.log("✅ Streaming finalized, playing remaining chunks");
+    this._finalized = true;
+    // If queue is already empty and not playing, fire complete immediately
+    if (!this.isPlaying && this.audioQueue.length === 0) {
+      console.log("✅ Playback complete (finalized with empty queue)");
+      if (this.onPlaybackComplete) this.onPlaybackComplete();
+    }
   }
 }

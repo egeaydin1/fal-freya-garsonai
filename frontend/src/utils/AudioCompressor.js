@@ -8,6 +8,11 @@ export class AudioCompressor {
     this.targetSampleRate = 16000; // 16kHz is sufficient for voice
   }
 
+  /** Alias for compressAudio (used by Menu.jsx) */
+  async compress(audioBlob) {
+    return this.compressAudio(audioBlob);
+  }
+
   /**
    * Compress audio blob to mono, 16kHz
    * Reduces file size from ~40KB to ~25KB for typical 2-3s recording

@@ -18,6 +18,8 @@ fi
 
 echo "📦 Installing backend dependencies..."
 cd backend
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 cd ..
 
@@ -26,6 +28,21 @@ cd frontend
 npm install
 cd ..
 
+cd backend
+echo "📂 Setting up database...
+# Check if DATABASE_URL is set
+if [ -z "$DATABASE_URL" ]; then
+    echo "❌ DATABASE_URL is not set in .env. Please configure it before proceeding
+    exit 1
+fi      
+
+echo "🔧 Running migrations..."
+alembic upgrade head
+uvicorn main:app --reload 
+cd ..   
+cd frontend
+npm run dev
+cd ..
 echo ""
 echo "✅ Setup complete!"
 echo ""

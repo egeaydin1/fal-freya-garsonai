@@ -112,19 +112,6 @@ export default function VoiceAI() {
         case "error":
           setStatus(`Error: ${data.message}`);
           break;
-          setIsPlaying(true);
-          // Reset audio player for new session
-          audioPlayerRef.current.reset();
-          break;
-        case "tts_complete":
-          // Finalize playback (ensure all chunks play)
-          audioPlayerRef.current.finalize();
-          setIsPlaying(false);
-          setStatus("idle");
-          break;
-        case "error":
-          setStatus(`Error: ${data.message}`);
-          break;
       }
     };
 

@@ -230,6 +230,52 @@ async def mark_order_paid(
     
     return {"success": True}
 
+@router.post("/tables/{table_id}/pay-all")
+async def pay_all_table_orders(
+    table_id: int,
+    restaurant: Restaurant = Depends(get_current_restaurant),
+    db: Session = Depends(get_db)
+):
+    """Mark all active orders for a table as paid"""
+    table = db.query(Table).filter(
+        Table.id == table_id,
+        Table.restaurant_id == restaurant.id
+    ).first()
+    
+    if not table:
+        raise HTTPException(status_code=404, detail="Table not found")
+    
+    active_orders = db.query(Order).filter(
+        Order.table_id == table.id,
+        Order.status != OrderStatus.paid
+    ).all()
+    
+    if not active_orders:
+        raise HTTPException(status_code=400, detail="No active orders for this table")
+    
+    total_paid = 0.0
+    for order in active_orders:
+        order.status = OrderStatus.paid
+        total_paid += order.total_price
+    
+    table.check_requested = False
+    table.check_requested_at = None
+    db.commit()
+    
+    await manager.send_to_restaurant(restaurant.id, {
+        "type": "table_paid",
+        "table_id": table.id,
+        "table_number": table.table_number,
+        "total_paid": total_paid
+    })
+    
+    await manager.send_to_table(table.qr_token, {
+        "type": "payment_completed",
+        "message": "Ödemeniz alındı. Teşekkür ederiz!"
+    })
+    
+    return {"success": True, "total_paid": total_paid, "orders_count": len(active_orders)}
+
 @router.get("/revenue/daily")
 def get_daily_revenue(
     restaurant: Restaurant = Depends(get_current_restaurant),

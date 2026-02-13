@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum, Boolean
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum, Boolean, Table as SATable
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -8,6 +8,26 @@ class OrderStatus(str, enum.Enum):
     preparing = "preparing"
     delivered = "delivered"
     paid = "paid"
+
+# Association table for product-allergen many-to-many
+product_allergens = SATable(
+    "product_allergens",
+    Base.metadata,
+    Column("product_id", Integer, ForeignKey("products.id", ondelete="CASCADE"), primary_key=True),
+    Column("allergen_id", Integer, ForeignKey("allergens.id", ondelete="CASCADE"), primary_key=True),
+)
+
+class Allergen(Base):
+    __tablename__ = "allergens"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    name = Column(String, nullable=False)
+    icon = Column(String, nullable=True)  # emoji or icon name
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    restaurant = relationship("Restaurant", back_populates="allergens")
+    products = relationship("Product", secondary=product_allergens, back_populates="allergens")
 
 class Restaurant(Base):
     __tablename__ = "restaurants"
@@ -21,6 +41,7 @@ class Restaurant(Base):
     tables = relationship("Table", back_populates="restaurant", cascade="all, delete-orphan")
     products = relationship("Product", back_populates="restaurant", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="restaurant", cascade="all, delete-orphan")
+    allergens = relationship("Allergen", back_populates="restaurant", cascade="all, delete-orphan")
 
 class Table(Base):
     __tablename__ = "tables"
@@ -52,6 +73,7 @@ class Product(Base):
     
     restaurant = relationship("Restaurant", back_populates="products")
     order_items = relationship("OrderItem", back_populates="product")
+    allergens = relationship("Allergen", secondary=product_allergens, back_populates="products")
 
 class Order(Base):
     __tablename__ = "orders"

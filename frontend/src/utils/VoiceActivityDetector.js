@@ -1,89 +1,89 @@
 /**
- * Voice Activity Detection (VAD) for automatic silence detection
- * Reduces latency by ~2s by eliminating manual stop button wait
+ * Voice Activity Detection (VAD) v2
+ * - Configurable silence trimming
+ * - Speaking detection with RMS threshold
+ * - 100ms polling intervals
+ * - Clean start/stop lifecycle
  */
 export class VoiceActivityDetector {
-  constructor(options = {}) {
-    this.silenceThreshold = options.silenceThreshold || 0.01; // Amplitude threshold
-    this.silenceDuration = options.silenceDuration || 1500; // 1.5 seconds of silence
+  constructor(stream, options = {}) {
+    this.stream = stream;
+    this.silenceThreshold = options.silenceThreshold || 0.012;
+    this.silenceDuration = options.silenceDuration || 1500; // 1.5s silence → stop
+    this.checkInterval = options.checkInterval || 100; // 100ms polling
     this.silenceStart = null;
     this.audioContext = null;
     this.analyser = null;
     this.dataArray = null;
+    this._speaking = false;
+    this._speechStarted = false;
   }
 
-  /**
-   * Initialize audio analysis context
-   */
-  initializeAnalyzer(stream) {
-    this.audioContext = new (
-      window.AudioContext || window.webkitAudioContext
-    )();
+  /** Initialize audio analyser from the media stream. */
+  async initialize() {
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 2048;
+    this.analyser.smoothingTimeConstant = 0.3;
 
-    const source = this.audioContext.createMediaStreamSource(stream);
+    const source = this.audioContext.createMediaStreamSource(this.stream);
     source.connect(this.analyser);
 
-    const bufferLength = this.analyser.frequencyBinCount;
-    this.dataArray = new Uint8Array(bufferLength);
+    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
   }
 
-  /**
-   * Analyze current audio level from MediaRecorder data
-   * Returns 'SILENCE_DETECTED' when silence threshold is met
-   */
-  analyzeAudioLevel() {
-    if (!this.analyser || !this.dataArray) {
-      return "SPEAKING";
-    }
+  /** Returns true if voice is currently detected. */
+  isSpeaking() {
+    if (!this.analyser || !this.dataArray) return true; // fail-open
 
-    // Get time domain data (waveform)
     this.analyser.getByteTimeDomainData(this.dataArray);
 
-    // Calculate RMS (Root Mean Square) amplitude
     let sum = 0;
     for (let i = 0; i < this.dataArray.length; i++) {
-      const normalized = (this.dataArray[i] - 128) / 128; // Normalize to -1 to 1
-      sum += normalized * normalized;
+      const n = (this.dataArray[i] - 128) / 128;
+      sum += n * n;
     }
     const rms = Math.sqrt(sum / this.dataArray.length);
 
-    // Check if below silence threshold
-    if (rms < this.silenceThreshold) {
-      if (!this.silenceStart) {
-        this.silenceStart = Date.now();
-      } else if (Date.now() - this.silenceStart > this.silenceDuration) {
-        console.log(
-          `🔇 VAD: Silence detected (${this.silenceDuration}ms), auto-stopping`,
-        );
-        return "SILENCE_DETECTED";
-      }
-    } else {
-      // Reset silence timer on voice activity
+    if (rms >= this.silenceThreshold) {
       this.silenceStart = null;
+      this._speaking = true;
+      this._speechStarted = true;
+      return true;
     }
 
-    return "SPEAKING";
+    // Below threshold
+    if (!this._speechStarted) return false; // never started speaking
+
+    if (!this.silenceStart) {
+      this.silenceStart = Date.now();
+      return true; // grace period
+    }
+
+    if (Date.now() - this.silenceStart < this.silenceDuration) {
+      return true; // still within grace
+    }
+
+    // Silence exceeded threshold
+    console.log("🔇 VAD: Silence detected, auto-stopping");
+    return false;
   }
 
-  /**
-   * Clean up audio context
-   */
+  /** Whether user has started speaking at all. */
+  hasSpeechStarted() {
+    return this._speechStarted;
+  }
+
+  /** Clean up resources. */
   cleanup() {
     if (this.audioContext) {
-      this.audioContext.close();
+      this.audioContext.close().catch(() => {});
       this.audioContext = null;
       this.analyser = null;
       this.dataArray = null;
     }
     this.silenceStart = null;
-  }
-
-  /**
-   * Reset silence detection state
-   */
-  reset() {
-    this.silenceStart = null;
+    this._speaking = false;
+    this._speechStarted = false;
   }
 }

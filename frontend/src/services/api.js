@@ -91,8 +91,60 @@ export const api = {
     return res.json();
   },
 
+  updateProduct: async (token, productId, product) => {
+    const res = await fetch(`${API_BASE}/api/menu/products/${productId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(product),
+    });
+    return res.json();
+  },
+
   deleteProduct: async (token, productId) => {
     const res = await fetch(`${API_BASE}/api/menu/products/${productId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.json();
+  },
+
+  // Image upload
+  uploadImage: async (token, file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`${API_BASE}/api/menu/upload-image`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    return res.json();
+  },
+
+  // Allergens
+  getAllergens: async (token) => {
+    const res = await fetch(`${API_BASE}/api/menu/allergens`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.json();
+  },
+
+  createAllergen: async (token, allergen) => {
+    const res = await fetch(`${API_BASE}/api/menu/allergens`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(allergen),
+    });
+    return res.json();
+  },
+
+  deleteAllergen: async (token, allergenId) => {
+    const res = await fetch(`${API_BASE}/api/menu/allergens/${allergenId}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -117,5 +169,14 @@ export const api = {
   // WebSocket voice connection
   connectVoice: (qrToken) => {
     return new WebSocket(`ws://localhost:8000/ws/voice/${qrToken}`);
+  },
+
+  // Pay all orders for a table
+  payAllTable: async (token, tableId) => {
+    const res = await fetch(`${API_BASE}/api/restaurant/tables/${tableId}/pay-all`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.json();
   },
 };

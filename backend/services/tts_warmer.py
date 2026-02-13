@@ -40,7 +40,7 @@ class TTSWarmer:
                     "input": "test",  # Minimal input
                     "voice": "zeynep",
                     "response_format": "mp3",
-                    "speed": 1.15
+                    "speed": 1.0,
                 }
             )
             

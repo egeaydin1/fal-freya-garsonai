@@ -36,7 +36,7 @@ class TTSService:
                 arguments={
                     "input": text,
                     "voice": "zeynep",  # Turkish voice
-                    "speed": 1.15       # 15% faster for reduced latency
+                    "speed": 1.0,      # 15% faster for reduced latency
                 },
                 path="/stream"  # ⚡ STREAMING MODE!
             )
