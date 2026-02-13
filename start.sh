@@ -86,6 +86,13 @@ if ! curl -s http://localhost:8000/health > /dev/null 2>&1; then
     exit 1
 fi
 
+# ── Seed database (menu products & allergens) ──────────────
+echo ""
+echo -e "${CYAN}🌱 Database Seed${NC}"
+cd "$BACKEND"
+python3 seed.py 2>&1 && echo -e "${GREEN}✔${NC} Menu products seeded" || echo -e "${YELLOW}⚠️  Seed skipped (register a restaurant first)${NC}"
+cd "$ROOT"
+
 # ── Frontend setup ──────────────────────────────────────────
 echo ""
 echo -e "${CYAN}📦 Frontend${NC}"
