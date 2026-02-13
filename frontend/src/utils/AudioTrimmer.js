@@ -1,9 +1,9 @@
 /**
  * Audio Trimmer - Smart Silence Detection & Removal
- * 
+ *
  * Removes silence from beginning and end of audio to reduce payload size
  * and improve STT accuracy by removing unnecessary audio.
- * 
+ *
  * Optimization: 300-500ms of silence typically removed = smaller payload
  */
 export class AudioTrimmer {
@@ -65,12 +65,10 @@ export class AudioTrimmer {
       }
 
       // Encode back to blob
-      const trimmedBlob = await this._encodeToBlob(
-        trimmedBuffer,
-        audioContext,
-      );
+      const trimmedBlob = await this._encodeToBlob(trimmedBuffer, audioContext);
 
-      const savedMs = ((channelData.length - trimmedLength) / this.targetSampleRate) * 1000;
+      const savedMs =
+        ((channelData.length - trimmedLength) / this.targetSampleRate) * 1000;
       console.log(
         `✅ Trimmer: Trimmed ${savedMs.toFixed(0)}ms silence (${(trimmedBlob.size / 1024).toFixed(2)}KB)`,
       );

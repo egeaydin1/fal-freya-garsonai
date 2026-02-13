@@ -5,6 +5,7 @@
 This document details the complete transformation of GarsonAI's voice pipeline from a **sequential batch architecture** to a **true full-duplex streaming architecture** with barge-in support.
 
 ### Performance Targets
+
 - **Perceived Latency**: < 1.5 seconds from speech end to first audio playback
 - **Incremental STT**: Process audio while user speaks (partial transcripts)
 - **Early LLM Trigger**: Start LLM at sentence boundaries (punctuation or 400ms silence)
@@ -16,6 +17,7 @@ This document details the complete transformation of GarsonAI's voice pipeline f
 ## 🏗️ Architecture Transformation
 
 ### Before: Sequential Batch Pipeline
+
 ```
 User Speech → [Wait] → Audio End → STT → LLM → TTS → Audio Playback
                         ↑ 500-1000ms ↑ 800ms ↑ 600ms ↑ 400ms
@@ -23,6 +25,7 @@ User Speech → [Wait] → Audio End → STT → LLM → TTS → Audio Playback
 ```
 
 ### After: Full-Duplex Streaming Pipeline
+
 ```
 User Speech (streaming 500ms chunks)
     ↓
@@ -49,9 +52,11 @@ User can INTERRUPT at any time:
 ### Backend
 
 #### 1. `backend/websocket/voice_session.py`
+
 **Purpose**: State machine for full-duplex voice sessions
 
 **Key Features**:
+
 - 6 states: `IDLE`, `LISTENING`, `PROCESSING_STT`, `GENERATING_LLM`, `STREAMING_TTS`, `INTERRUPTED`
 - Audio buffering with safety limits (1MB max)
 - Partial transcript tracking and merging
@@ -62,6 +67,7 @@ User can INTERRUPT at any time:
 - Timing metrics: `start_time`, `last_partial_stt_time`, `silence_start_time`
 
 **Code Snippet**:
+
 ```python
 class SessionState(Enum):
     IDLE = "idle"
@@ -80,7 +86,7 @@ class VoiceSession:
     audio_buffer: bytearray = field(default_factory=bytearray)
     partial_transcript: str = ""
     start_time: float = field(default_factory=time.time)
-    
+
     def can_process_partial_stt(self) -> bool:
         """Check if we have enough audio for partial STT (1.2s @ 16kHz mono 16-bit)"""
         MIN_CHUNK_DURATION = 1.2  # seconds
@@ -88,26 +94,28 @@ class VoiceSession:
         BYTES_PER_SAMPLE = 2
         min_bytes = MIN_CHUNK_DURATION * SAMPLE_RATE * BYTES_PER_SAMPLE
         return len(self.audio_buffer) >= min_bytes
-    
+
     def should_trigger_llm(self) -> bool:
         """Check if partial transcript indicates sentence boundary + silence"""
         if not self.partial_transcript:
             return False
-        
+
         # Check for sentence-ending punctuation
         ends_with_punctuation = self.partial_transcript.rstrip().endswith(('.', '!', '?'))
-        
+
         # Check silence duration (400ms threshold)
         silence_duration = time.time() - self.silence_start_time if self.silence_start_time else 0
         has_silence = silence_duration >= 0.4
-        
+
         return ends_with_punctuation and has_silence
 ```
 
 #### 2. `backend/services/partial_stt.py`
+
 **Purpose**: Incremental STT processing while user speaks
 
 **Key Features**:
+
 - `transcribe_partial(audio_data, is_final)`: Process audio chunks incrementally
 - `merge_transcripts(old, new)`: Handle overlapping transcripts from partial processing
 - Return format: `{text, is_final, is_incomplete, confidence, processing_time}`
@@ -115,11 +123,12 @@ class VoiceSession:
 - Word-level timestamps support (optional)
 
 **Code Snippet**:
+
 ```python
 class PartialSTTService:
     async def transcribe_partial(
-        self, 
-        audio_data: bytes, 
+        self,
+        audio_data: bytes,
         is_final: bool = False
     ) -> Dict[str, Any]:
         """
@@ -136,7 +145,7 @@ class PartialSTTService:
                 "chunk_level": "segment" if is_final else "word"
             }
         )
-        
+
         return {
             "text": result.get("text", ""),
             "is_final": is_final,
@@ -147,9 +156,11 @@ class PartialSTTService:
 ```
 
 #### 3. `backend/services/streaming_llm_bridge.py`
+
 **Purpose**: Bridge incremental STT → streaming LLM → parallel TTS
 
 **Key Features**:
+
 - `process_stream()`: Main orchestrator for LLM+TTS pipeline
 - Sentence boundary detection: `_detect_sentence_boundary(text)`
 - Automatic JSON extraction: `_extract_spoken_response()`
@@ -159,6 +170,7 @@ class PartialSTTService:
 - `cancel_active_streams(session_id)`: Cancel all tasks for session
 
 **Code Snippet**:
+
 ```python
 async def process_stream(
     self,
@@ -170,23 +182,23 @@ async def process_stream(
     session_id: str
 ) -> Dict[str, Any]:
     """Process LLM stream with early TTS triggering"""
-    
+
     # Stream LLM tokens
     async for llm_event in self.llm.generate_stream(transcript, menu_context, start_time):
         if llm_event["type"] == "token":
             full_response = llm_event["full_text"]
-            
+
             # Detect first sentence boundary
             if not first_sentence_complete:
                 sentence_complete, first_sentence = self._detect_sentence_boundary(full_response)
-                
+
                 if sentence_complete:
                     # Start parallel TTS immediately
                     tts_task = asyncio.create_task(
                         self._stream_tts_parallel(spoken_text, start_time, websocket_send_bytes)
                     )
                     self.active_tasks[f"{session_id}_tts"] = tts_task
-    
+
     # Wait for parallel TTS or trigger fallback
     if tts_task:
         await tts_task
@@ -195,7 +207,9 @@ async def process_stream(
 ```
 
 #### 4. `backend/routers/voice_routes.py` (Refactored)
+
 **Changes**:
+
 - Use `VoiceSession` state machine instead of chunk accumulation
 - Call `partial_stt.transcribe_partial()` every 1.2s worth of audio
 - Send `partial_transcript` messages to client for real-time feedback
@@ -205,25 +219,26 @@ async def process_stream(
 - Proper session cleanup on disconnect
 
 **Code Snippet**:
+
 ```python
 if "bytes" in data:
     # Audio chunk (500ms)
     chunk = data["bytes"]
     session.add_audio_chunk(chunk)
-    
+
     # Check if we should process partial STT
     if session.can_process_partial_stt():
         session.state = SessionState.PROCESSING_STT
-        
+
         audio_data = bytes(session.audio_buffer)
         partial_result = await partial_stt.transcribe_partial(audio_data, is_final=False)
-        
+
         if partial_result and partial_result.get("text"):
             session.partial_transcript = partial_stt.merge_transcripts(
                 session.partial_transcript,
                 partial_result["text"]
             )
-            
+
             # Send partial transcript
             await websocket.send_json({
                 "type": "partial_transcript",
@@ -231,7 +246,7 @@ if "bytes" in data:
                 "confidence": partial_result.get("confidence", 0.0),
                 "is_final": False
             })
-            
+
             # Check early LLM trigger
             if session.should_trigger_llm():
                 # Start LLM+TTS pipeline immediately
@@ -239,7 +254,7 @@ if "bytes" in data:
 
 elif "text" in data:
     message = json.loads(data["text"])
-    
+
     if message.get("type") == "interrupt":
         # Barge-in
         await llm_bridge.cancel_active_streams(session.session_id)
@@ -250,9 +265,11 @@ elif "text" in data:
 ### Frontend
 
 #### 5. `frontend/src/hooks/useVoiceSession.js`
+
 **Purpose**: React hook for full-duplex voice state management
 
 **Key Features**:
+
 - Voice modes: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`
 - Partial/final transcript state separation
 - Barge-in detection:
@@ -265,37 +282,38 @@ elif "text" in data:
 - Cleanup on unmount
 
 **Code Snippet**:
+
 ```javascript
 export const VoiceMode = {
-  IDLE: 'idle',
-  LISTENING: 'listening',
-  THINKING: 'thinking',
-  SPEAKING: 'speaking'
+  IDLE: "idle",
+  LISTENING: "listening",
+  THINKING: "thinking",
+  SPEAKING: "speaking",
 };
 
 export default function useVoiceSession() {
   const [mode, setMode] = useState(VoiceMode.IDLE);
-  const [partialTranscript, setPartialTranscript] = useState('');
-  const [finalTranscript, setFinalTranscript] = useState('');
-  
+  const [partialTranscript, setPartialTranscript] = useState("");
+  const [finalTranscript, setFinalTranscript] = useState("");
+
   // Barge-in detection
   const startBargeInDetection = useCallback(() => {
     bargeInCheckIntervalRef.current = setInterval(() => {
       analyser.getByteTimeDomainData(dataArray);
       const rms = calculateRMS(dataArray);
-      
+
       if (rms > BARGE_IN_THRESHOLD && mode === VoiceMode.SPEAKING) {
         console.log(`🛑 BARGE-IN! (RMS: ${rms})`);
         handleBargeIn();
       }
     }, 100);
   }, [mode]);
-  
+
   const handleBargeIn = useCallback(() => {
-    wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
+    wsRef.current.send(JSON.stringify({ type: "interrupt" }));
     setMode(VoiceMode.LISTENING);
   }, []);
-  
+
   return {
     mode,
     partialTranscript,
@@ -304,17 +322,19 @@ export default function useVoiceSession() {
     stopListening,
     sendAudioChunk,
     handleBargeIn,
-    cleanup
+    cleanup,
   };
 }
 ```
 
 #### 6. `frontend/src/utils/StreamingAudioPlayer.js` (Updated)
+
 **New Method**: `stopImmediately()`
 
 **Purpose**: Immediate audio cancellation for barge-in (no AudioContext suspend)
 
 **Code Snippet**:
+
 ```javascript
 /**
  * Immediately stop playback and clear queue (for barge-in)
@@ -324,13 +344,15 @@ stopImmediately() {
   this.isPlaying = false;
   this.audioQueue = [];
   this.nextStartTime = this.audioContext ? this.audioContext.currentTime : 0;
-  
+
   console.log("🛑 Playback stopped immediately (barge-in)");
 }
 ```
 
 #### 7. `frontend/src/pages/VoiceAI.jsx` (Refactored)
+
 **Changes**:
+
 - Use `useVoiceSession()` hook instead of manual state management
 - Map `VoiceMode` to legacy status for component compatibility
 - Display partial transcripts with `...` indicator
@@ -340,6 +362,7 @@ stopImmediately() {
 - New UI hints: "Full-duplex streaming mode with barge-in support"
 
 **Code Snippet**:
+
 ```javascript
 const {
   mode,
@@ -350,15 +373,15 @@ const {
   initWebSocket,
   startListening,
   stopListening,
-  sendAudioChunk
+  sendAudioChunk,
 } = useVoiceSession();
 
 // Map mode to legacy status
 const status = {
   [VoiceMode.IDLE]: "idle",
-  [VoiceMode.LISTENING]: "listening", 
+  [VoiceMode.LISTENING]: "listening",
   [VoiceMode.THINKING]: "processing",
-  [VoiceMode.SPEAKING]: "speaking"
+  [VoiceMode.SPEAKING]: "speaking",
 }[mode];
 
 // Display partial transcript
@@ -377,27 +400,27 @@ useEffect(() => {
 
 ### Client → Server
 
-| Message Type | Payload | Trigger | Purpose |
-|-------------|---------|---------|---------|
-| `bytes` | Audio chunk (500ms Opus) | Every 500ms during recording | Incremental STT processing |
-| `audio_end` | `{"type": "audio_end"}` | User stops speaking (VAD or manual) | Trigger final STT + LLM |
-| `interrupt` | `{"type": "interrupt"}` | Barge-in detected (RMS > 0.02) | Cancel active LLM/TTS streams |
-| `ping` | `{"type": "ping"}` | Heartbeat (every 30s) | Keep connection alive |
+| Message Type | Payload                  | Trigger                             | Purpose                       |
+| ------------ | ------------------------ | ----------------------------------- | ----------------------------- |
+| `bytes`      | Audio chunk (500ms Opus) | Every 500ms during recording        | Incremental STT processing    |
+| `audio_end`  | `{"type": "audio_end"}`  | User stops speaking (VAD or manual) | Trigger final STT + LLM       |
+| `interrupt`  | `{"type": "interrupt"}`  | Barge-in detected (RMS > 0.02)      | Cancel active LLM/TTS streams |
+| `ping`       | `{"type": "ping"}`       | Heartbeat (every 30s)               | Keep connection alive         |
 
 ### Server → Client
 
-| Message Type | Payload | Trigger | Purpose |
-|-------------|---------|---------|---------|
-| `status` | `{"type": "status", "message": "receiving"}` | Audio chunk received | UI feedback |
-| `partial_transcript` | `{"type": "partial_transcript", "text": "...", "confidence": 0.85, "is_final": false}` | Partial STT result (every 1.2s) | Real-time transcript display |
-| `transcript` | `{"type": "transcript", "text": "...", "is_final": true}` | Final STT complete | Show complete user transcript |
-| `ai_token` | `{"type": "ai_token", "token": "word", "full_text": "..."}` | LLM streaming | Display AI response incrementally |
-| `ai_complete` | `{"type": "ai_complete", "data": {...}}` | LLM finished | Structured data (orders, etc.) |
-| `tts_start` | `{"type": "tts_start"}` | TTS begins | Start barge-in detection |
-| `bytes` | Binary PCM16 audio chunk | TTS chunk ready | Audio playback |
-| `tts_complete` | `{"type": "tts_complete"}` | TTS finished | Stop barge-in detection |
-| `interrupt_ack` | `{"type": "interrupt_ack"}` | Interrupt handled | Confirm barge-in cancellation |
-| `error` | `{"type": "error", "message": "..."}` | Error occurred | Display error to user |
+| Message Type         | Payload                                                                                | Trigger                         | Purpose                           |
+| -------------------- | -------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------- |
+| `status`             | `{"type": "status", "message": "receiving"}`                                           | Audio chunk received            | UI feedback                       |
+| `partial_transcript` | `{"type": "partial_transcript", "text": "...", "confidence": 0.85, "is_final": false}` | Partial STT result (every 1.2s) | Real-time transcript display      |
+| `transcript`         | `{"type": "transcript", "text": "...", "is_final": true}`                              | Final STT complete              | Show complete user transcript     |
+| `ai_token`           | `{"type": "ai_token", "token": "word", "full_text": "..."}`                            | LLM streaming                   | Display AI response incrementally |
+| `ai_complete`        | `{"type": "ai_complete", "data": {...}}`                                               | LLM finished                    | Structured data (orders, etc.)    |
+| `tts_start`          | `{"type": "tts_start"}`                                                                | TTS begins                      | Start barge-in detection          |
+| `bytes`              | Binary PCM16 audio chunk                                                               | TTS chunk ready                 | Audio playback                    |
+| `tts_complete`       | `{"type": "tts_complete"}`                                                             | TTS finished                    | Stop barge-in detection           |
+| `interrupt_ack`      | `{"type": "interrupt_ack"}`                                                            | Interrupt handled               | Confirm barge-in cancellation     |
+| `error`              | `{"type": "error", "message": "..."}`                                                  | Error occurred                  | Display error to user             |
 
 ---
 
@@ -450,30 +473,35 @@ useEffect(() => {
 ## ⚡ Performance Optimizations
 
 ### 1. Incremental STT (Partial Processing)
+
 - **What**: Process audio every 1.2s while user speaks
 - **How**: `partial_stt.transcribe_partial()` with `is_final=False`
 - **Benefit**: Real-time feedback, early LLM trigger
 - **Latency Save**: ~500ms (don't wait for audio_end)
 
 ### 2. Early LLM Trigger
+
 - **What**: Start LLM when sentence boundary + 400ms silence detected
 - **How**: `session.should_trigger_llm()` checks for `.!?` + silence duration
 - **Benefit**: Reduces "processing" phase perceived latency
 - **Latency Save**: ~600ms (LLM starts before user fully stops speaking)
 
 ### 3. Parallel TTS Spawning
+
 - **What**: Start TTS on first complete LLM sentence (don't wait for full LLM)
 - **How**: `streaming_llm_bridge` detects sentence boundary in LLM stream, creates async TTS task
 - **Benefit**: Audio playback begins while LLM still generating
 - **Latency Save**: ~400ms (overlap LLM + TTS)
 
 ### 4. Barge-In Support
+
 - **What**: User can interrupt AI mid-speech
 - **How**: Monitor RMS amplitude (threshold 0.02) every 100ms during TTS playback
 - **Benefit**: Natural conversation flow, cancel unwanted responses
 - **Latency**: Interrupt detected within 100ms
 
 ### Total Perceived Latency
+
 ```
 Before: 2.3-3.3s (Audio End → STT → LLM → TTS → Playback)
 After:  1.2-1.8s (Partial STT → Early LLM → Parallel TTS)
@@ -486,6 +514,7 @@ Improvement: 35-45% faster
 ## 🧪 Testing Checklist
 
 ### Backend Tests
+
 - [ ] Partial STT returns correct format `{text, is_final, confidence}`
 - [ ] Session state transitions correctly (IDLE → LISTENING → PROCESSING_STT → GENERATING_LLM → STREAMING_TTS)
 - [ ] Early LLM trigger activates on sentence boundary + 400ms silence
@@ -494,6 +523,7 @@ Improvement: 35-45% faster
 - [ ] Session cleanup on WebSocket disconnect
 
 ### Frontend Tests
+
 - [ ] Mode badge displays correct state (IDLE → LISTENING → THINKING → SPEAKING)
 - [ ] Partial transcripts show with `...` indicator
 - [ ] Final transcript replaces partial transcript
@@ -502,6 +532,7 @@ Improvement: 35-45% faster
 - [ ] Error messages display correctly
 
 ### Integration Tests
+
 - [ ] End-to-end latency < 1.5s from speech end to first audio
 - [ ] Incremental STT updates every ~1.2s
 - [ ] Early LLM trigger works with Turkish sentences
@@ -514,11 +545,13 @@ Improvement: 35-45% faster
 ## 🚀 Deployment Notes
 
 ### Environment Setup
+
 1. **Backend**: Ensure `uvloop` installed (`pip install uvloop`)
 2. **Frontend**: Run `npm install` to get latest dependencies
 3. **API Keys**: Set `OPENROUTER_API_KEY` and `FAL_KEY` in `.env`
 
 ### Running Locally
+
 ```bash
 # Backend (Terminal 1)
 cd backend
@@ -530,6 +563,7 @@ npm run dev
 ```
 
 ### Testing Full-Duplex
+
 1. Navigate to `http://localhost:5173/voice/{qr_token}`
 2. Click "Start Talking" and grant microphone permission
 3. Speak a sentence: "Merhaba, iki pizza ve bir kola istiyorum"
@@ -545,6 +579,7 @@ npm run dev
 ## 📝 Key Takeaways
 
 ### What Changed
+
 - **Architecture**: Sequential batch → Full-duplex streaming
 - **STT**: Single final transcription → Incremental partial processing
 - **LLM**: Start after STT complete → Early trigger on sentence boundary
@@ -552,17 +587,20 @@ npm run dev
 - **UX**: Listen-only → Barge-in support (interrupt AI)
 
 ### Performance Impact
+
 - **Latency**: 2.3-3.3s → 1.2-1.8s (**35-45% improvement**)
 - **Responsiveness**: No partial feedback → Real-time transcript updates
 - **Naturalness**: Sequential turn-taking → Interruptible conversation
 
 ### Code Quality
+
 - **Modularity**: Monolithic voice_routes.py → Separated concerns (voice_session, partial_stt, streaming_llm_bridge)
 - **State Management**: Boolean flags → Proper state machine (SessionState enum)
 - **Error Handling**: Basic try/catch → Barge-in cancellation, session cleanup
 - **Frontend**: Manual state → Custom hook (useVoiceSession)
 
 ### Next Steps
+
 1. **Load Testing**: Test with multiple concurrent sessions
 2. **Latency Profiling**: Add detailed timing logs for each pipeline stage
 3. **Error Recovery**: Handle network disconnects, API failures gracefully

@@ -46,6 +46,7 @@ GarsonAI is a production-ready, real-time voice AI waiter system that enables re
 ## ✨ Key Features
 
 ### For Customers
+
 - 🗣️ **Natural voice ordering in Turkish**
 - 🎮 **Manual control mode**: User-initiated recording (no auto-restart after AI)
 - 📊 **Real-time incremental transcription**: See partial results while speaking
@@ -56,6 +57,7 @@ GarsonAI is a production-ready, real-time voice AI waiter system that enables re
 - 📱 **QR code access** (no app needed)
 
 ### For Restaurant Owners
+
 - 🍽️ Menu management (CRUD operations)
 - 📊 Real-time order tracking dashboard
 - 🪑 Table management with QR generation
@@ -63,6 +65,7 @@ GarsonAI is a production-ready, real-time voice AI waiter system that enables re
 - 🔐 Secure authentication (JWT)
 
 ### Technical Features
+
 - 🚀 **Full-duplex incremental STT**: Process 500ms chunks in real-time
 - ⚡ **Parallel pipeline**: LLM + TTS overlap processing
 - 🛡️ **STT resilience**: Rate limiting (500ms), retry logic (3x), chunk filtering
@@ -117,7 +120,7 @@ External AI Services (via fal.ai & OpenRouter):
 🎤 MANUAL CONTROL MODE:
 User clicks "Konuşmaya Başla" → MediaRecorder starts (Opus 16kbps, Mono, 16kHz)
     ↓ (500ms chunks streaming, binary WebSocket)
-    
+
 📊 INCREMENTAL STT (Real-time Processing):
 Backend receives each 500ms chunk immediately
     ↓ (rate limited: min 500ms between requests)
@@ -128,23 +131,23 @@ Freya STT processes chunk → Partial transcript
     ↓
 Send partial transcript to frontend → Live display
     ↓ (continues for each chunk)
-    
+
 🛑 VAD or Manual Stop:
 800ms silence detected OR user clicks "Durdur"
     ↓
 Final transcript sent to LLM
     ↓
-    
+
 🧠 LLM Processing:
 Gemini 2.5 Flash → Streaming JSON Response
     ↓ (parallel pipeline: TTS starts immediately)
-    
+
 🔊 PARALLEL TTS:
 Freya TTS (Zeynep) → Streaming PCM16 Audio Chunks
     ↓ (WebSocket binary frames)
 Frontend StreamingAudioPlayer → Gapless Playback
     ↓
-    
+
 🔄 RETURN TO IDLE:
 After TTS completes → Mode: IDLE (NOT auto-recording)
 User must click "Konuşmaya Başla" again for next interaction
@@ -161,6 +164,7 @@ System returns to IDLE → User clicks to restart
 ## 🛠️ Tech Stack
 
 ### Frontend
+
 - **Framework**: React 19.2 (with hooks)
 - **Router**: React Router DOM 7.13
 - **Styling**: TailwindCSS 4.1 + DaisyUI 5.5
@@ -170,6 +174,7 @@ System returns to IDLE → User clicks to restart
 - **QR**: qrcode.react 4.2
 
 ### Backend
+
 - **Framework**: FastAPI 0.115 (async ASGI)
 - **Server**: Uvicorn with uvloop (production-grade)
 - **Database**: PostgreSQL + SQLAlchemy ORM
@@ -179,6 +184,7 @@ System returns to IDLE → User clicks to restart
 - **LLM**: OpenRouter (Google Gemini 2.5 Flash)
 
 ### AI Models
+
 - **STT**: fal.ai Freya STT (TensorRT-optimized Whisper Large v3)
 - **LLM**: Google Gemini 2.5 Flash (via OpenRouter)
 - **TTS**: fal.ai Freya TTS (Turkish Zeynep voice, 16kHz PCM16 streaming)
@@ -189,16 +195,16 @@ System returns to IDLE → User clicks to restart
 
 ### Latency Metrics (Full-Duplex Incremental Pipeline)
 
-| Stage | Time | Details |
-|-------|------|---------|
-| **Audio Capture** | 0.0-2.5s | User speaks + 800ms VAD silence detection |
-| **Incremental STT** | 0.5-1.5s | Per 500ms chunk (parallel with speaking) |
-| **STT Retry (if error)** | 0-14s | Up to 3 retries with exponential backoff (2s, 4s, 8s) |
-| **LLM First Token** | 0.2-0.4s | Gemini 2.5 Flash (streaming) |
-| **TTS First Chunk** | 0.2-0.3s | Freya TTS (streaming PCM16, parallel with LLM) |
-| **Audio Playback** | Immediate | Gapless Web Audio API streaming |
-| **TOTAL (Ideal)** | **2.5-4.0s** | From speech end to audio start (no retries) ⚡ |
-| **TOTAL (With Retries)** | **8-18s** | If STT API returns 500 errors (resilient but slower) |
+| Stage                    | Time         | Details                                               |
+| ------------------------ | ------------ | ----------------------------------------------------- |
+| **Audio Capture**        | 0.0-2.5s     | User speaks + 800ms VAD silence detection             |
+| **Incremental STT**      | 0.5-1.5s     | Per 500ms chunk (parallel with speaking)              |
+| **STT Retry (if error)** | 0-14s        | Up to 3 retries with exponential backoff (2s, 4s, 8s) |
+| **LLM First Token**      | 0.2-0.4s     | Gemini 2.5 Flash (streaming)                          |
+| **TTS First Chunk**      | 0.2-0.3s     | Freya TTS (streaming PCM16, parallel with LLM)        |
+| **Audio Playback**       | Immediate    | Gapless Web Audio API streaming                       |
+| **TOTAL (Ideal)**        | **2.5-4.0s** | From speech end to audio start (no retries) ⚡        |
+| **TOTAL (With Retries)** | **8-18s**    | If STT API returns 500 errors (resilient but slower)  |
 
 **Note**: Actual latency depends on Freya STT API stability. In testing, first 1-2 interactions work smoothly (~3-4s), but persistent 500 errors may trigger retry logic adding 2-14s delay.
 
@@ -225,6 +231,7 @@ AFTER (Full-Duplex Incremental):
 ```
 
 ### Key Optimizations Applied
+
 1. ✅ **Incremental STT**: Process 500ms chunks in real-time (not batch)
 2. ✅ **Mono 16kHz audio**: 3x less data vs stereo 48kHz
 3. ✅ **500ms chunk streaming**: Perceived latency < 500ms
@@ -241,6 +248,7 @@ AFTER (Full-Duplex Incremental):
 ## 🚀 Installation
 
 ### Prerequisites
+
 - Python 3.10+
 - Node.js 18+
 - PostgreSQL 14+
@@ -250,12 +258,14 @@ AFTER (Full-Duplex Incremental):
 ### Quick Start
 
 #### 1. Clone Repository
+
 ```bash
 git clone https://github.com/yourusername/fal-freya-garsonai.git
 cd fal-freya-garsonai
 ```
 
 #### 2. Backend Setup
+
 ```bash
 cd backend
 
@@ -272,6 +282,7 @@ cp .env.example .env
 ```
 
 #### 3. Frontend Setup
+
 ```bash
 cd ../frontend
 
@@ -283,6 +294,7 @@ npm install
 ```
 
 #### 4. Database Setup
+
 ```bash
 # Create PostgreSQL database
 createdb garsonai
@@ -296,6 +308,7 @@ DATABASE_URL=postgresql://user:password@localhost/garsonai
 #### 5. Run Application
 
 **Option 1: Optimized Start Script (Recommended)**
+
 ```bash
 # From project root
 chmod +x start-optimized.sh
@@ -303,6 +316,7 @@ chmod +x start-optimized.sh
 ```
 
 **Option 2: Manual Start**
+
 ```bash
 # Terminal 1: Backend with uvloop
 cd backend
@@ -314,6 +328,7 @@ npm run dev
 ```
 
 #### 6. Access Application
+
 - **Frontend**: http://localhost:5173
 - **Backend API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs (Swagger UI)
@@ -350,8 +365,8 @@ OPENROUTER_API_KEY=your-openrouter-api-key-here
 Edit `frontend/src/services/api.js` if backend URL differs:
 
 ```javascript
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const WS_BASE_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000";
 ```
 
 ### Voice Pipeline Tuning
@@ -360,13 +375,13 @@ Adjust in `frontend/src/pages/VoiceAI.jsx`:
 
 ```javascript
 // VAD sensitivity (800ms = aggressive, 1500ms = conservative)
-silenceDuration: 800
+silenceDuration: 800;
 
 // Audio quality (lower = smaller file, faster upload)
-audioBitsPerSecond: 16000  // 16kbps for voice
+audioBitsPerSecond: 16000; // 16kbps for voice
 
 // Chunk size (500ms = real-time feedback)
-mediaRecorder.start(500)
+mediaRecorder.start(500);
 ```
 
 ---
@@ -698,9 +713,11 @@ mediaRecorder.start(500)
 ### Authentication Endpoints
 
 #### POST `/api/auth/register`
+
 Register new restaurant account.
 
 **Request:**
+
 ```json
 {
   "name": "Restaurant Name",
@@ -710,6 +727,7 @@ Register new restaurant account.
 ```
 
 **Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -718,9 +736,11 @@ Register new restaurant account.
 ```
 
 #### POST `/api/auth/login`
+
 Login to existing account.
 
 **Request:**
+
 ```json
 {
   "username": "owner@restaurant.com",
@@ -729,6 +749,7 @@ Login to existing account.
 ```
 
 **Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -743,9 +764,11 @@ Login to existing account.
 **Authentication Required:** All endpoints require `Authorization: Bearer <token>` header.
 
 #### GET `/api/restaurant/tables`
+
 Get all tables for authenticated restaurant.
 
 **Response:**
+
 ```json
 [
   {
@@ -759,9 +782,11 @@ Get all tables for authenticated restaurant.
 ```
 
 #### POST `/api/restaurant/tables`
+
 Create new table with QR code.
 
 **Request:**
+
 ```json
 {
   "table_number": 10
@@ -769,6 +794,7 @@ Create new table with QR code.
 ```
 
 **Response:**
+
 ```json
 {
   "id": 2,
@@ -780,9 +806,11 @@ Create new table with QR code.
 ```
 
 #### DELETE `/api/restaurant/tables/{table_id}`
+
 Delete table.
 
 **Response:**
+
 ```json
 {
   "message": "Table deleted"
@@ -790,23 +818,25 @@ Delete table.
 ```
 
 #### GET `/api/restaurant/orders`
+
 Get all orders for restaurant. Query parameters: `?status=preparing`
 
 **Response:**
+
 ```json
 [
   {
     "id": 1,
-    "table": {"table_number": 5},
+    "table": { "table_number": 5 },
     "status": "preparing",
     "total_price": 175.0,
     "items": [
       {
-        "product": {"name": "Pizza", "price": 150.0},
+        "product": { "name": "Pizza", "price": 150.0 },
         "quantity": 1
       },
       {
-        "product": {"name": "Kola", "price": 25.0},
+        "product": { "name": "Kola", "price": 25.0 },
         "quantity": 1
       }
     ],
@@ -816,9 +846,11 @@ Get all orders for restaurant. Query parameters: `?status=preparing`
 ```
 
 #### PATCH `/api/restaurant/orders/{order_id}/status`
+
 Update order status.
 
 **Request:**
+
 ```json
 {
   "status": "delivered"
@@ -826,6 +858,7 @@ Update order status.
 ```
 
 **Response:**
+
 ```json
 {
   "id": 1,
@@ -838,12 +871,15 @@ Update order status.
 ### Menu Management (Protected)
 
 #### GET `/api/menu/products`
+
 Get all products for authenticated restaurant.
 
 #### POST `/api/menu/products`
+
 Create new menu item.
 
 **Request:**
+
 ```json
 {
   "name": "Pizza Margherita",
@@ -856,9 +892,11 @@ Create new menu item.
 ```
 
 #### PATCH `/api/menu/products/{product_id}`
+
 Update menu item.
 
 #### DELETE `/api/menu/products/{product_id}`
+
 Delete menu item.
 
 ---
@@ -866,9 +904,11 @@ Delete menu item.
 ### Public Menu Endpoints
 
 #### GET `/api/menu/{qr_token}`
+
 Get menu for specific table (public access).
 
 **Response:**
+
 ```json
 {
   "restaurant": {
@@ -893,19 +933,22 @@ Get menu for specific table (public access).
 ```
 
 #### POST `/api/menu/{qr_token}/checkout`
+
 Place order (manual or voice-generated).
 
 **Request:**
+
 ```json
 {
   "items": [
-    {"product_id": 1, "quantity": 2},
-    {"product_id": 3, "quantity": 1}
+    { "product_id": 1, "quantity": 2 },
+    { "product_id": 3, "quantity": 1 }
   ]
 }
 ```
 
 **Response:**
+
 ```json
 {
   "order_id": 42,
@@ -920,43 +963,50 @@ Place order (manual or voice-generated).
 ### WebSocket Voice Endpoint
 
 #### WS `/ws/voice/{qr_token}`
+
 Real-time voice AI pipeline.
 
 **Connection:**
+
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/voice/abc123def456');
+const ws = new WebSocket("ws://localhost:8000/ws/voice/abc123def456");
 ```
 
 **Client → Server Messages:**
 
 1. **Audio chunks (binary):**
+
 ```javascript
-ws.send(audioBlob);  // 500ms WebM/Opus chunks
+ws.send(audioBlob); // 500ms WebM/Opus chunks
 ```
 
 2. **Control messages (JSON):**
+
 ```javascript
 // Signal end of recording
-ws.send(JSON.stringify({type: "audio_end"}));
+ws.send(JSON.stringify({ type: "audio_end" }));
 
 // Keep-alive ping
-ws.send(JSON.stringify({type: "ping"}));
+ws.send(JSON.stringify({ type: "ping" }));
 ```
 
 **Server → Client Messages:**
 
 1. **Status updates:**
+
 ```json
 {"type": "status", "message": "receiving"}
 {"type": "status", "message": "processing"}
 ```
 
 2. **Transcript:**
+
 ```json
-{"type": "transcript", "text": "İki pizza lütfen"}
+{ "type": "transcript", "text": "İki pizza lütfen" }
 ```
 
 3. **AI streaming tokens:**
+
 ```json
 {
   "type": "ai_token",
@@ -966,6 +1016,7 @@ ws.send(JSON.stringify({type: "ping"}));
 ```
 
 4. **AI complete:**
+
 ```json
 {
   "type": "ai_complete",
@@ -979,20 +1030,23 @@ ws.send(JSON.stringify({type: "ping"}));
 ```
 
 5. **TTS events:**
+
 ```json
 {"type": "tts_start"}
 {"type": "tts_complete"}
 ```
 
 6. **Audio chunks (binary):**
+
 ```javascript
 // Blob containing PCM16 audio data
-event.data // instanceof Blob
+event.data; // instanceof Blob
 ```
 
 7. **Errors:**
+
 ```json
-{"type": "error", "message": "STT service unavailable"}
+{ "type": "error", "message": "STT service unavailable" }
 ```
 
 ---
@@ -1127,33 +1181,36 @@ CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 ### Audio Optimization
 
 #### 1. Mono Audio (50% reduction)
+
 **Problem:** Stereo captures 2 channels but voice is mono.  
 **Solution:** Request mono via `channelCount: 1` in getUserMedia.  
 **Impact:** 50% less data to upload and process.
 
 ```javascript
 // frontend/src/pages/VoiceAI.jsx
-const stream = await navigator.mediaDevices.getUserMedia({ 
+const stream = await navigator.mediaDevices.getUserMedia({
   audio: {
-    channelCount: 1,  // Mono instead of stereo
+    channelCount: 1, // Mono instead of stereo
     echoCancellation: true,
-    noiseSuppression: true
-  } 
+    noiseSuppression: true,
+  },
 });
 ```
 
 #### 2. 16kHz Sample Rate (66% reduction)
+
 **Problem:** Default 48kHz captures more data than needed for speech.  
 **Solution:** Request 16kHz (Whisper's native sample rate).  
 **Impact:** 3x less data, faster upload, same quality.
 
 ```javascript
 audio: {
-  sampleRate: 16000  // Whisper processes at 16kHz internally
+  sampleRate: 16000; // Whisper processes at 16kHz internally
 }
 ```
 
 #### 3. 16kbps Opus Codec (voice-optimized)
+
 **Problem:** Default bitrate (32kbps) over-compresses or wastes bandwidth.  
 **Solution:** 16kbps Opus is perfect for voice.  
 **Impact:** Smaller files, faster inference.
@@ -1161,7 +1218,7 @@ audio: {
 ```javascript
 const mediaRecorder = new MediaRecorder(stream, {
   mimeType: "audio/webm;codecs=opus",
-  audioBitsPerSecond: 16000  // Optimized for speech
+  audioBitsPerSecond: 16000, // Optimized for speech
 });
 ```
 
@@ -1172,20 +1229,22 @@ const mediaRecorder = new MediaRecorder(stream, {
 ### Latency Optimization
 
 #### 4. Chunk Streaming (perceived latency < 50ms)
+
 **Problem:** Wait for full recording before processing.  
 **Solution:** Stream 500ms chunks in real-time.  
 **Impact:** Instant UI feedback, user knows system is responding.
 
 ```javascript
-mediaRecorder.start(500);  // 500ms chunks
+mediaRecorder.start(500); // 500ms chunks
 
 mediaRecorder.ondataavailable = (event) => {
-  ws.send(event.data);  // Send immediately
+  ws.send(event.data); // Send immediately
   console.log("📤 Chunk sent");
 };
 ```
 
 #### 5. Aggressive VAD (700ms saved)
+
 **Problem:** 1.5s silence wait feels slow.  
 **Solution:** 800ms threshold is sweet spot (natural pauses < 800ms).  
 **Impact:** Recording stops 700ms faster.
@@ -1199,20 +1258,22 @@ constructor(options = {}) {
 ```
 
 #### 6. Binary WebSocket (no base64 overhead)
+
 **Problem:** Base64 encoding adds 33% size overhead.  
 **Solution:** Send audio as binary WebSocket frames.  
 **Impact:** Smaller payload, faster transmission.
 
 ```javascript
 // Send binary directly
-ws.send(audioBlob);  // No encoding needed
+ws.send(audioBlob); // No encoding needed
 
 // Backend receives
-data = await websocket.receive()
-audio_chunk = data["bytes"]  // Raw bytes
+data = await websocket.receive();
+audio_chunk = data["bytes"]; // Raw bytes
 ```
 
 #### 7. uvloop Event Loop (2-4x faster async)
+
 **Problem:** Python's default asyncio is CPU-bound.  
 **Solution:** uvloop uses libuv (same as Node.js).  
 **Impact:** 100-250ms faster I/O operations.
@@ -1228,6 +1289,7 @@ uvloop
 ```
 
 #### 8. Container Warmup (eliminates cold starts)
+
 **Problem:** First TTS request takes 2-3s (container startup).  
 **Solution:** Background task sends dummy request every 30s.  
 **Impact:** All requests fast (0.4-0.9s).
@@ -1251,6 +1313,7 @@ async def lifespan(app: FastAPI):
 ```
 
 #### 9. Parallel Pipeline (600ms hidden latency)
+
 **Problem:** Sequential STT → LLM → TTS wastes time.  
 **Solution:** Start TTS when first LLM sentence completes.  
 **Impact:** TTS runs while LLM finishes, 600ms saved.
@@ -1264,6 +1327,7 @@ async for llm_event in llm_service.generate_stream(...):
 ```
 
 #### 10. Streaming TTS (2.3s faster first audio)
+
 **Problem:** Wait for full MP3 generation (3.1s).  
 **Solution:** Stream PCM16 chunks in real-time.  
 **Impact:** First audio in 0.23s (was 3.1s).
@@ -1290,6 +1354,7 @@ async addPCMChunk(pcmBytes) {
 ### Prompt Optimization
 
 #### 11. Minimal Prompt Tokens (~50 tokens)
+
 **Problem:** Long prompts increase LLM latency and cost.  
 **Solution:** Ultra-compact system prompt.  
 **Impact:** 200-400ms faster LLM response.
@@ -1311,6 +1376,7 @@ Müşteri: {transcript}"""
 ```
 
 #### 12. Menu Caching
+
 **Problem:** Sending full menu every request wastes tokens.  
 **Solution:** Cache menu per session (WebSocket connection).  
 **Impact:** 20-30% token reduction.
@@ -1325,6 +1391,7 @@ menu_context = "\n".join([f"- {p.name}: {p.price}TL" for p in products])
 ### Connection Optimization
 
 #### 13. HTTP Keep-Alive (connection pooling)
+
 **Problem:** Each API call opens new connection.  
 **Solution:** Reuse TCP connections with httpx pool.  
 **Impact:** 100-200ms per request.
@@ -1333,7 +1400,7 @@ menu_context = "\n".join([f"- {p.name}: {p.price}TL" for p in products])
 # backend/core/fal_client_pool.py
 class FalClientPool:
     _client = None
-    
+
     @classmethod
     def get_client(cls):
         if cls._client is None:
@@ -1349,6 +1416,7 @@ class FalClientPool:
 ### Code-Level Optimization
 
 #### 14. Non-Blocking Event Loop
+
 **Problem:** CPU-bound tasks block async event loop.  
 **Solution:** Run in thread pool with `asyncio.to_thread()`.  
 **Impact:** Event loop stays responsive.
@@ -1363,6 +1431,7 @@ result = await asyncio.to_thread(
 ```
 
 #### 15. Audio Trimming (100-200ms saved)
+
 **Problem:** Silence at start/end wastes processing time.  
 **Solution:** Smart RMS-based silence removal.  
 **Impact:** Smaller audio, faster STT.
@@ -1400,6 +1469,7 @@ print(f"[COMPLETE] Total: {elapsed:06.3f}s")
 ```
 
 **Target metrics:**
+
 - STT: < 1.0s
 - LLM first token: < 0.5s
 - TTS first chunk: < 0.3s
@@ -1516,17 +1586,19 @@ pytest tests/
 ```
 
 **Key Files to Edit:**
+
 - `routers/voice_routes.py` - Voice pipeline logic
 - `services/*.py` - AI service integrations
 - `models/models.py` - Database schema changes
 
 **Database Migration:**
+
 ```python
 # SQLAlchemy auto-creates tables on startup
 # For schema changes:
 # 1. Edit models/models.py
 # 2. Restart server (tables updated via Base.metadata.create_all)
-# 
+#
 # For production, use Alembic:
 # alembic revision --autogenerate -m "Add new column"
 # alembic upgrade head
@@ -1551,11 +1623,13 @@ npm run preview
 ```
 
 **Key Files to Edit:**
+
 - `pages/VoiceAI.jsx` - Voice interface logic
 - `utils/StreamingAudioPlayer.js` - Audio playback
 - `components/*.jsx` - UI components
 
 **Styling:**
+
 - Uses TailwindCSS + DaisyUI
 - Edit `index.css` for global styles
 - Component styles are inline Tailwind classes
@@ -1563,6 +1637,7 @@ npm run preview
 #### 3. Testing Voice Pipeline
 
 **Step-by-step:**
+
 1. Start backend: `uvicorn main:app --reload --loop uvloop`
 2. Start frontend: `npm run dev`
 3. Login to create restaurant
@@ -1574,6 +1649,7 @@ npm run preview
 9. Check console logs for timing metrics
 
 **Expected console output:**
+
 ```
 [Frontend]
 🎤 Recording started
@@ -1598,6 +1674,7 @@ npm run preview
 #### 4. Debugging Tips
 
 **Backend errors:**
+
 ```bash
 # Check logs
 tail -f logs/uvicorn.log  # If logging to file
@@ -1623,6 +1700,7 @@ asyncio.run(test())
 ```
 
 **Frontend errors:**
+
 ```javascript
 // Check WebSocket connection
 ws.onopen = () => console.log("✅ WebSocket connected");
@@ -1665,6 +1743,7 @@ gunicorn main:app \
 ```
 
 **Systemd Service:**
+
 ```ini
 # /etc/systemd/system/garsonai-backend.service
 [Unit]
@@ -1699,6 +1778,7 @@ npm run build
 ```
 
 **Nginx Configuration:**
+
 ```nginx
 server {
     listen 80;
@@ -1741,8 +1821,9 @@ server {
 ### Docker Deployment
 
 **docker-compose.yml:**
+
 ```yaml
-version: '3.8'
+version: "3.8"
 
 services:
   db:
@@ -1786,6 +1867,7 @@ volumes:
 ```
 
 **Backend Dockerfile:**
+
 ```dockerfile
 FROM python:3.11-slim
 
@@ -1809,6 +1891,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "uv
 ```
 
 **Frontend Dockerfile:**
+
 ```dockerfile
 FROM node:18 AS builder
 
@@ -1887,6 +1970,7 @@ async def metrics():
 **Error:** `DOMException: Permission denied`
 
 **Solution:**
+
 - Check browser permissions (chrome://settings/content/microphone)
 - Use HTTPS in production (getUserMedia requires secure context)
 - On localhost, HTTP is allowed
@@ -1898,6 +1982,7 @@ async def metrics():
 **Error:** `WebSocket connection failed`
 
 **Checks:**
+
 ```javascript
 // Ensure backend is running
 curl http://localhost:8000/health
@@ -1921,6 +2006,7 @@ app.add_middleware(
 #### 3. High latency (> 3s)
 
 **Diagnostics:**
+
 ```bash
 # Check backend logs for timing
 grep "\[COMPLETE\]" logs/uvicorn.log
@@ -1935,6 +2021,7 @@ grep "TTS warmer" logs/uvicorn.log
 ```
 
 **If still slow:**
+
 - Check network latency to fal.ai (EU region preferred)
 - Verify audio is compressed (check size in network tab)
 - Test STT/LLM/TTS services individually
@@ -1945,22 +2032,24 @@ grep "TTS warmer" logs/uvicorn.log
 #### 4. Audio playback choppy/stuttering
 
 **Causes:**
+
 - Incorrect PCM conversion (check Float32 normalization)
 - Sample rate mismatch (ensure 16kHz throughout)
 - AudioContext suspended (user gesture required)
 
 **Solution:**
+
 ```javascript
 // frontend/src/utils/StreamingAudioPlayer.js
 
 // Ensure sample rate matches
-const audioContext = new AudioContext({sampleRate: 16000});
+const audioContext = new AudioContext({ sampleRate: 16000 });
 
 // Resume context on user interaction
 audioContext.resume();
 
 // Check PCM conversion
-const normalized = sample / 32768.0;  // Int16 → Float32
+const normalized = sample / 32768.0; // Int16 → Float32
 ```
 
 ---
@@ -1968,6 +2057,7 @@ const normalized = sample / 32768.0;  // Int16 → Float32
 #### 5. STT returns empty string
 
 **Checks:**
+
 ```bash
 # Verify audio format
 file audio.webm
@@ -1987,6 +2077,7 @@ ffprobe -i audio.webm -show_entries format=duration
 #### 6. LLM returns malformed JSON
 
 **Debug:**
+
 ```python
 # backend/services/llm.py
 
@@ -2002,6 +2093,7 @@ except JSONDecodeError as e:
 ```
 
 **Solution:** Improve prompt constraints
+
 ```python
 prompt = """Return ONLY valid JSON. Example:
 {"spoken_response":"Tabii, iki pizza ekliyorum!","intent":"add","product_name":"Pizza","quantity":2}
@@ -2015,6 +2107,7 @@ No markdown, no explanation."""
 **Error:** `sqlalchemy.exc.OperationalError: could not connect to server`
 
 **Checks:**
+
 ```bash
 # Verify PostgreSQL is running
 sudo systemctl status postgresql
@@ -2034,6 +2127,7 @@ psql -U garsonai -d garsonai -h localhost
 **Cause:** WebSocket connections not cleaned up
 
 **Solution:**
+
 ```python
 # backend/websocket/manager.py
 
@@ -2050,14 +2144,15 @@ def disconnect(self, websocket: WebSocket, table_id: str):
 #### 9. VAD too sensitive (stops mid-sentence)
 
 **Adjust threshold:**
+
 ```javascript
 // frontend/src/utils/VoiceActivityDetector.js
 
 // Less sensitive (allow quieter speech)
-this.silenceThreshold = 0.005;  // Was 0.01
+this.silenceThreshold = 0.005; // Was 0.01
 
 // Longer silence required
-this.silenceDuration = 1200;  // Was 800ms
+this.silenceDuration = 1200; // Was 800ms
 ```
 
 ---
@@ -2065,6 +2160,7 @@ this.silenceDuration = 1200;  // Was 800ms
 #### 10. TTS voice quality poor
 
 **Improve:**
+
 ```python
 # backend/services/tts.py
 
@@ -2102,6 +2198,7 @@ Contributions welcome! Please:
 ## 📞 Support
 
 For issues or questions:
+
 - GitHub Issues: [Create an issue]
 - Email: support@garsonai.example.com
 - Discord: [Join our community]
@@ -2121,6 +2218,7 @@ For issues or questions:
 ## 📈 Roadmap
 
 ### v1.1 (Planned)
+
 - [ ] Multi-language support (English, Arabic)
 - [ ] Voice authentication per table
 - [ ] Order modification via voice
@@ -2128,6 +2226,7 @@ For issues or questions:
 - [ ] Analytics dashboard
 
 ### v1.2 (Future)
+
 - [ ] Offline mode (service worker)
 - [ ] Native mobile apps (React Native)
 - [ ] Kitchen display system
@@ -2138,4 +2237,4 @@ For issues or questions:
 
 **Built with ❤️ by GarsonAI Team**
 
-*Making restaurant ordering seamless, one voice at a time.* 🎙️🍕
+_Making restaurant ordering seamless, one voice at a time._ 🎙️🍕
