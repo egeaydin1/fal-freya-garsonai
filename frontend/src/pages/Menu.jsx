@@ -149,8 +149,11 @@ export default function Menu() {
         case "tts_start":
           isPlayingRef.current = true;
           setVoiceState("playing");
-          if (playerRef.current) playerRef.current.reset();
-          // Recommendation popup'u sadece tts_start'tan sonra göster
+          // CRITICAL: DO NOT reset player here if it's already receiving parallel chunks
+          // The chunks might arrive slightly before tts_start event
+          console.log("🔊 AI speech starting (tts_start)");
+          
+          // Recommendation popup
           if (pendingRecommendation) {
             setShowRecommendation(true);
           }

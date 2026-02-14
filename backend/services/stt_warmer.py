@@ -29,18 +29,27 @@ class STTWarmer:
     async def warmup_call(self):
         """
         Send minimal STT request to keep container alive.
-        Uses a tiny silent audio buffer to trigger container spin-up.
+        Uses a valid minimal WebM/Opus header to avoid worker crashes.
         """
         try:
             start = time.time()
 
-            # Create minimal valid WebM/Opus audio (silent, ~100ms)
-            # This is just enough to trigger the container without real processing
-            silent_audio = b'\x00' * 2000  # Minimal buffer
+            # Minimal valid WebM/Opus header (first few segments)
+            # This is much safer than null bytes which cause internal server errors
+            valid_minimal_webm = (
+                b'\x1a\x45\xdf\xa3\x93\x42\x82\x88\x6d\x61\x74\x72\x6f\x73\x6b\x61'
+                b'\x42\x87\x81\x01\x42\x85\x81\x02\x42\xf7\x81\x01\x42\xf2\x81\x04'
+                b'\x42\xf3\x81\x08\x42\x82\x84\x77\x65\x62\x6d\x42\x87\x81\x01\x42'
+                b'\x85\x81\x02'
+            ) + b'\x00' * 500  # Pad slightly
 
-            # Upload and subscribe — just to keep container warm
+            # Upload with unique name to prevent any CDN interference
+            warmup_id = int(time.time())
             audio_url = await asyncio.to_thread(
-                fal_client.upload, silent_audio, "audio/webm", file_name="warmup.webm"
+                fal_client.upload, 
+                valid_minimal_webm, 
+                "audio/webm", 
+                file_name=f"warmup_{warmup_id}.webm"
             )
 
             await asyncio.to_thread(

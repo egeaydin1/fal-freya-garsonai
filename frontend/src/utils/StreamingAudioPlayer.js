@@ -1,8 +1,3 @@
-/**
- * Streaming Audio Player for Real-Time PCM16 Playback
- * Plays audio chunks as they arrive from TTS streaming endpoint
- * No buffering delay - immediate playback
- */
 export class StreamingAudioPlayer {
   constructor(options = {}) {
     this.sampleRate = options.sampleRate || 16000; // 16kHz PCM
@@ -10,6 +5,7 @@ export class StreamingAudioPlayer {
     this.audioQueue = [];
     this.isPlaying = false;
     this.nextStartTime = 0;
+    this.activeSource = null; // Track current playing node
   }
 
   /**
@@ -24,6 +20,10 @@ export class StreamingAudioPlayer {
       });
 
       console.log("🎧 StreamingAudioPlayer: Initialized");
+    }
+    
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
     }
   }
 
@@ -46,7 +46,13 @@ export class StreamingAudioPlayer {
       // Start playback if not already playing
       if (!this.isPlaying) {
         this.isPlaying = true;
-        this.nextStartTime = this.audioContext.currentTime;
+        
+        // If nextStartTime is in the past, reset to current time
+        const currentTime = this.audioContext.currentTime;
+        if (this.nextStartTime < currentTime) {
+          this.nextStartTime = currentTime;
+        }
+        
         this.playNext();
       }
 
@@ -60,29 +66,20 @@ export class StreamingAudioPlayer {
 
   /**
    * Convert PCM16 bytes to AudioBuffer
-   * @param {ArrayBuffer} pcmBytes - Raw PCM16 (16-bit signed integers)
-   * @returns {AudioBuffer}
    */
   async pcmToAudioBuffer(pcmBytes) {
-    // PCM16 = 16-bit signed integers (Int16Array)
     const samples = new Int16Array(pcmBytes);
-
-    // Convert to Float32Array (Web Audio API format)
     const floatSamples = new Float32Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
-      floatSamples[i] = samples[i] / 32768.0; // Normalize to [-1, 1]
+      floatSamples[i] = samples[i] / 32768.0;
     }
 
-    // Create AudioBuffer
     const audioBuffer = this.audioContext.createBuffer(
-      1, // Mono
+      1,
       floatSamples.length,
       this.sampleRate,
     );
-
-    // Set channel data
     audioBuffer.getChannelData(0).set(floatSamples);
-
     return audioBuffer;
   }
 
@@ -91,31 +88,29 @@ export class StreamingAudioPlayer {
    */
   playNext() {
     if (this.audioQueue.length === 0) {
-      // Queue empty, wait for more chunks
       this.isPlaying = false;
+      this.activeSource = null;
       console.log("⏸️ Playback paused (waiting for chunks)");
       return;
     }
 
     const audioBuffer = this.audioQueue.shift();
-
-    // Create buffer source
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(this.audioContext.destination);
 
-    // Schedule at precise time for gapless playback
     const currentTime = this.audioContext.currentTime;
     const startTime = Math.max(currentTime, this.nextStartTime);
 
     source.start(startTime);
-
-    // Update next start time
+    this.activeSource = source;
     this.nextStartTime = startTime + audioBuffer.duration;
 
-    // Schedule next chunk
     source.onended = () => {
-      this.playNext();
+      // Only trigger if this was the source we expected to finish
+      if (this.activeSource === source) {
+        this.playNext();
+      }
     };
 
     console.log(
@@ -127,47 +122,50 @@ export class StreamingAudioPlayer {
    * Stop playback and clear queue
    */
   stop() {
+    console.log("🛑 Playback stopping...");
     this.isPlaying = false;
     this.audioQueue = [];
     this.nextStartTime = 0;
 
-    if (this.audioContext) {
-      this.audioContext.suspend();
+    if (this.activeSource) {
+      try {
+        this.activeSource.stop();
+      } catch (e) {
+        // Source might have already finished
+      }
+      this.activeSource = null;
     }
-
-    console.log("🛑 Playback stopped");
   }
 
   /**
    * Immediately stop playback and clear queue (for barge-in)
-   * Unlike stop(), this doesn't suspend the AudioContext
    */
   stopImmediately() {
-    this.isPlaying = false;
-    this.audioQueue = [];
-    this.nextStartTime = this.audioContext ? this.audioContext.currentTime : 0;
-
     console.log("🛑 Playback stopped immediately (barge-in)");
+    this.stop();
   }
 
   /**
    * Reset for new session
    */
   reset() {
-    this.stop();
-
-    if (this.audioContext) {
-      this.audioContext.resume();
+    // DO NOT suspend context here, as it causes massive latency on next play
+    this.isPlaying = false;
+    this.audioQueue = [];
+    this.nextStartTime = 0;
+    
+    if (this.activeSource) {
+      try { this.activeSource.stop(); } catch (e) {}
+      this.activeSource = null;
     }
 
-    console.log("🔄 Player reset");
+    console.log("🔄 Player reset (context kept warm)");
   }
 
   /**
    * Finalize playback (no more chunks coming)
    */
   finalize() {
-    // Just let the queue play out
     console.log("✅ Streaming finalized, playing remaining chunks");
   }
 }

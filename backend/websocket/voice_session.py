@@ -65,9 +65,9 @@ class VoiceSession:
     first_audio_time: float = 0
     
     # Configuration — tuned for sub-2s latency
-    MIN_CHUNKS_FOR_PARTIAL: int = 2  # 2 x 250ms = 500ms min audio for partial STT
-    MIN_STT_INTERVAL: float = 0.6    # Minimum 600ms between partial STT calls
-    SILENCE_THRESHOLD: float = 0.3   # 300ms silence triggers early LLM
+    MIN_CHUNKS_FOR_PARTIAL: int = 4  # 4 x 250ms = 1s min audio for partial STT
+    MIN_STT_INTERVAL: float = 1.0    # Minimum 1s between partial STT calls
+    SILENCE_THRESHOLD: float = 0.4   # 400ms silence triggers early LLM
     MAX_BUFFER_SIZE: int = 1024 * 1024  # 1MB max buffer
     
     def can_process_partial_stt(self) -> bool:

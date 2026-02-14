@@ -57,8 +57,10 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
     
     menu_context = "\n".join([_build_product_line(p) for p in products])
     
-    # Create voice session for this connection
-    session = session_manager.create_session(table_id, menu_context)
+    # Create voice session for this connection (using unique session_id)
+    import uuid
+    session_id = f"{table_id}_{uuid.uuid4().hex[:8]}"
+    session = session_manager.create_session(session_id, menu_context)
     print(f"🔗 Session created: {session.session_id}")
     
     # Track partial STT processing task

@@ -27,9 +27,9 @@ class PartialSTTService:
     def __init__(self):
         self.model = "freya-mypsdi253hbk/freya-stt/generate"
         self.last_result = ""
-        self.processing_semaphore = asyncio.Semaphore(4)  # Allow 4 concurrent STT calls
+        self.processing_semaphore = asyncio.Semaphore(2)  # Reduced to 2 for better stability
         self.last_request_time = 0
-        self.min_request_interval = 0.10  # Minimum 100ms between requests
+        self.min_request_interval = 0.80  # Increased to 800ms to prevent flooding
     
     async def transcribe_partial(
         self, 
@@ -65,9 +65,10 @@ class PartialSTTService:
             self.last_request_time = time.time()
             
             try:
-                # Skip very small audio chunks (< 1KB)
-                if len(audio_data) < 1000:
-                    print(f"⏭️ Skipping tiny audio chunk: {len(audio_data)} bytes")
+                # Skip very small audio chunks (< 4KB)
+                # 164 bytes is definitely too small and causes container issues
+                if len(audio_data) < 4000:
+                    print(f"⏭️ Skipping small audio chunk: {len(audio_data)} bytes")
                     return {
                         "text": "",
                         "is_final": is_final,
@@ -79,9 +80,13 @@ class PartialSTTService:
                 
                 print(f"🎤 STT: {len(audio_data)} bytes (final={is_final})")
                 
-                # Upload audio bytes directly to fal.ai CDN (no temp file)
+                # Upload with unique filename to prevent CDN/Cache clashing
+                upload_id = f"{int(time.time())}_{len(audio_data)}"
                 audio_url = await asyncio.to_thread(
-                    fal_client.upload, audio_data, "audio/webm", file_name="audio.webm"
+                    fal_client.upload, 
+                    audio_data, 
+                    "audio/webm", 
+                    file_name=f"audio_{upload_id}.webm"
                 )
                 
                 # Call Freya STT with retry logic for 500 errors

@@ -102,13 +102,12 @@ export default function VoiceAI() {
       
       initWebSocket(qrToken, handleAudioChunk);
       
-      // Wait for WebSocket to be ready before allowing recording
-      const checkInterval = setInterval(() => {
-        if (wsRef.current?.readyState === 1) {
-          console.log('✅ WebSocket ready for recording');
-          clearInterval(checkInterval);
-        }
-      }, 100);
+      // Log ready state
+      wsRef.current.onopen = () => {
+        console.log('✅ WebSocket connected (VoiceAI)');
+        // Ensure player is ready
+        streamingPlayerRef.current.initialize();
+      };
       
       // Cleanup on unmount or qrToken change
       return () => {
