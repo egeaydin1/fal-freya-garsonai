@@ -13,16 +13,19 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+    ports:
+      - "5432:5432"
 
   # One-shot service: seeds demo restaurant + menu on first run
   seed:
     build: ./backend
     command: ["python", "seed.py"]
     environment:
-      DATABASE_URL: postgresql://user:password@database:5432/garsonai
+      DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY:-demo-secret-key-change-me}
       FAL_KEY: ${FAL_KEY:-placeholder}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-placeholder}
+      PYTHONUNBUFFERED: 1
     depends_on:
       database:
         condition: service_healthy
@@ -31,10 +34,11 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql://user:password@database:5432/garsonai
+      DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY:-demo-secret-key-change-me}
       FAL_KEY: ${FAL_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      PYTHONUNBUFFERED: 1
     depends_on:
       database:
         condition: service_healthy

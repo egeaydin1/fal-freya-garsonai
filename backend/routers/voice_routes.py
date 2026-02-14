@@ -9,6 +9,16 @@ from websocket.voice_session import SessionManager
 import json
 import asyncio
 import time
+import logging
+import sys
+
+# Configure logging to stdout and flush
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -28,6 +38,7 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
       - Barge-in: User can interrupt AI mid-speech
     """
     await manager.connect(websocket, table_id)
+    logger.info(f"🔌 WebSocket connected: table_id={table_id}")
     
     # Verify table exists
     table = db.query(Table).filter(Table.qr_token == table_id).first()
@@ -122,6 +133,7 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
             if "bytes" in data:
                 # Audio chunk received (500ms) - full-duplex incremental processing
                 chunk = data["bytes"]
+                logger.info(f"📥 Received audio chunk: {len(chunk)} bytes")
                 session.add_audio_chunk(chunk)
                 
                 # Check if we should process partial STT (every 1.2s worth of audio)
@@ -148,6 +160,7 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                 message = json.loads(data["text"])
                 
                 if message.get("type") == "ping":
+                    print("🏓 Received ping")
                     await websocket.send_json({"type": "pong"})
                     continue
                 
@@ -176,6 +189,7 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                     continue
                 
                 elif message.get("type") == "audio_end":
+                    logger.info("🎤 Received audio_end signal")
                     # Cancel any running partial STT - we'll do final STT instead
                     if partial_stt_task and not partial_stt_task.done():
                         partial_stt_task.cancel()

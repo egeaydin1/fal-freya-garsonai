@@ -8,6 +8,9 @@ import time
 import uuid
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Wait for DB to be ready
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://user:password@database:5432/garsonai")

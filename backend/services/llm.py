@@ -9,6 +9,7 @@ settings = get_settings()
 # Set FAL API key
 import os
 os.environ['FAL_KEY'] = settings.FAL_KEY
+os.environ['OPENROUTER_API_KEY'] = settings.OPENROUTER_API_KEY
 
 class LLMService:
     def __init__(self):

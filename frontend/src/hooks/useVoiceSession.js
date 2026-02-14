@@ -340,7 +340,7 @@ export default function useVoiceSession() {
         // Initialize VAD
         vadRef.current = new VoiceActivityDetector({
           silenceThreshold: 0.01,
-          silenceDuration: 500, // Ultra-aggressive 500ms threshold for low latency
+          silenceDuration: 1500, // Increased from 500ms to 1500ms for better stability
         });
 
         // Initialize audio analyser for VAD

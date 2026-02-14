@@ -67,7 +67,7 @@ class PartialSTTService:
             try:
                 # Skip very small audio chunks (< 4KB)
                 # 164 bytes is definitely too small and causes container issues
-                if len(audio_data) < 4000:
+                if len(audio_data) < 500:
                     print(f"⏭️ Skipping small audio chunk: {len(audio_data)} bytes")
                     return {
                         "text": "",
