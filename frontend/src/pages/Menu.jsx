@@ -132,12 +132,15 @@ export default function Menu() {
     ws.onmessage = async (event) => {
       // Binary → audio chunk
       if (event.data instanceof Blob) {
+        console.log("[Voice API] audio chunk", event.data.size, "bytes");
         const buf = await event.data.arrayBuffer();
         await playerRef.current.addPCMChunk(buf);
         return;
       }
 
       const data = JSON.parse(event.data);
+      // Konuşma/yanıt akışında gelen tüm API yanıtlarını yazdır
+      console.log("[Voice API response]", data.type, data);
 
       switch (data.type) {
         case "greeting":
