@@ -36,7 +36,5 @@ npm-debug.log
 !README.md
 .DS_Store
 
-# Docker
-Dockerfile*
+# Docker (keep Dockerfile in context so Railway detects it)
 docker-compose*
-.dockerignore
