@@ -238,11 +238,7 @@ export default function useVoiceSession() {
       vadRef.current = null;
     }
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "audio_end" }));
-      console.log("📤 Sent audio_end");
-    }
-
+    // audio_end is sent by the component in MediaRecorder.onstop after sending full audio
     setMode(VoiceMode.THINKING);
   }, []);
 

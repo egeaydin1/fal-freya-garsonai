@@ -36,6 +36,7 @@ export default function VoiceAI() {
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const streamingPlayerRef = useRef(new StreamingAudioPlayer());
+  const audioChunksRef = useRef([]);
 
   // Update displayed transcript (prefer final over partial)
   useEffect(() => {
@@ -159,30 +160,45 @@ export default function VoiceAI() {
         } 
       });
       
-      // Setup MediaRecorder for chunk streaming
+      // Accumulate audio; send to API only when user stops speaking
+      audioChunksRef.current = [];
+
+      // Setup MediaRecorder with 1s chunks (no request to API until stop)
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: "audio/webm;codecs=opus",
         audioBitsPerSecond: 16000, // 16kbps low bitrate
       });
       mediaRecorderRef.current = mediaRecorder;
-      
+
       // Pass refs to hook
       setMediaRecorder(mediaRecorder);
       setStream(stream);
-      
+
       // Initialize VAD and start listening
       await startListening(stream);
-      
-      mediaRecorder.ondataavailable = async (event) => {
-        if (event.data.size > 0) {
-          // Send 500ms chunks to server for incremental STT
-          console.log(`📤 Streaming chunk: ${event.data.size} bytes, WS state: ${wsRef.current?.readyState}`);
-          await sendAudioChunk(event.data);
+
+      // Collect chunks locally; do not send until recording stops
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      // On stop: send full audio once, then audio_end
+      mediaRecorder.onstop = async () => {
+        const chunks = audioChunksRef.current;
+        if (chunks.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          const blob = new Blob(chunks, { type: "audio/webm" });
+          const buf = await blob.arrayBuffer();
+          wsRef.current.send(buf);
+          console.log("📤 Sent full audio", buf.byteLength, "bytes");
+        }
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "audio_end" }));
+          console.log("📤 Sent audio_end");
         }
       };
-      
-      // Start recording with 250ms chunks (reduced from 500ms for lower latency)
-      mediaRecorder.start(250);
+
+      // 1s chunks; API is only called after user stops (in onstop)
+      mediaRecorder.start(1000);
       
       console.log("✅ Full-duplex voice session started");
     } catch (err) {

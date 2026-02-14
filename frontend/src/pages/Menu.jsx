@@ -49,6 +49,7 @@ export default function Menu() {
   const startListeningRef = useRef(null);
   const showVoiceRef = useRef(showVoice);
   const voiceStateRef = useRef(voiceState);
+  const audioChunksRef = useRef([]);
 
   useEffect(() => {
     showVoiceRef.current = showVoice;
@@ -288,7 +289,10 @@ export default function Menu() {
       vad.reset();
       vadRef.current = vad;
 
-      // Setup MediaRecorder for 250ms chunk streaming
+      // Accumulate audio; send to API only when user stops speaking
+      audioChunksRef.current = [];
+
+      // Setup MediaRecorder with 1s chunks (no streaming to API until stop)
       let recorder;
       const preferredMime = "audio/webm;codecs=opus";
       if (MediaRecorder.isTypeSupported(preferredMime)) {
@@ -304,15 +308,27 @@ export default function Menu() {
       }
       mediaRecorderRef.current = recorder;
 
-      // Stream each 250ms chunk directly via WebSocket binary
-      recorder.ondataavailable = async (e) => {
-        if (e.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          const arrayBuffer = await e.data.arrayBuffer();
-          wsRef.current.send(arrayBuffer);
+      // Collect chunks locally; do not send to API until recording stops
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      // On stop: send full audio once, then audio_end (API request only after speech ends)
+      recorder.onstop = async () => {
+        const chunks = audioChunksRef.current;
+        if (chunks.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          const blob = new Blob(chunks, { type: "audio/webm" });
+          const buf = await blob.arrayBuffer();
+          wsRef.current.send(buf);
+          console.log("📤 Sent full audio", buf.byteLength, "bytes");
+        }
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "audio_end" }));
+          console.log("📤 Sent audio_end");
         }
       };
 
-      // VAD polling: detect silence to auto-stop (daha agresif, 600ms)
+      // VAD polling: detect silence to auto-stop
       vadIntervalRef.current = setInterval(() => {
         if (vadRef.current) {
           const vadStatus = vadRef.current.analyzeAudioLevel();
@@ -322,8 +338,8 @@ export default function Menu() {
         }
       }, 80);
 
-      // Start recording with 250ms chunks for incremental STT
-      recorder.start(250);
+      // 1s chunks; API is only called after user stops (in onstop)
+      recorder.start(1000);
       setVoiceState("listening");
       setTranscript("");
       setPartialTranscript("");
@@ -371,12 +387,7 @@ export default function Menu() {
       vadRef.current = null;
     }
 
-    // Send audio_end signal to backend (triggers final STT + LLM pipeline)
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "audio_end" }));
-      console.log("📤 Sent audio_end");
-    }
-
+    // audio_end is sent from recorder.onstop after full audio is uploaded
     setVoiceState("processing");
   };
   // Update ref on every render to capture latest closure
