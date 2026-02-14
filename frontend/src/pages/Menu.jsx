@@ -50,6 +50,8 @@ export default function Menu() {
   const showVoiceRef = useRef(showVoice);
   const voiceStateRef = useRef(voiceState);
   const audioChunksRef = useRef([]);
+  const pendingFinalizeTimeoutRef = useRef(null);
+  const ttsCompleteReceivedRef = useRef(false);
 
   useEffect(() => {
     showVoiceRef.current = showVoice;
@@ -130,10 +132,23 @@ export default function Menu() {
     const ws = new WebSocket(`${config.WS_URL}/ws/voice/${qrToken}`);
     wsRef.current = ws;
 
+    const scheduleFinalizeAfterChunks = () => {
+      if (pendingFinalizeTimeoutRef.current) clearTimeout(pendingFinalizeTimeoutRef.current);
+      pendingFinalizeTimeoutRef.current = setTimeout(() => {
+        pendingFinalizeTimeoutRef.current = null;
+        ttsCompleteReceivedRef.current = false;
+        if (playerRef.current) {
+          playerRef.current.finalize();
+          console.log("🔇 Finalize after last chunk (conversation done)");
+        }
+      }, 600); // 600ms after last chunk = no more in flight
+    };
+
     ws.onmessage = async (event) => {
       // Binary → audio chunk
       if (event.data instanceof Blob) {
         console.log("[Voice API] audio chunk", event.data.size, "bytes");
+        if (ttsCompleteReceivedRef.current) scheduleFinalizeAfterChunks();
         const buf = await event.data.arrayBuffer();
         await playerRef.current.addPCMChunk(buf);
         return;
@@ -192,21 +207,21 @@ export default function Menu() {
           break;
 
         case "tts_start":
+          if (pendingFinalizeTimeoutRef.current) {
+            clearTimeout(pendingFinalizeTimeoutRef.current);
+            pendingFinalizeTimeoutRef.current = null;
+          }
+          ttsCompleteReceivedRef.current = false;
           isPlayingRef.current = true;
           setVoiceState("playing");
-          // CRITICAL: DO NOT reset player here if it's already receiving parallel chunks
-          // The chunks might arrive slightly before tts_start event
           console.log("🔊 AI speech starting (tts_start)");
-          
-          // Recommendation popup
-          if (pendingRecommendation) {
-            setShowRecommendation(true);
-          }
+          if (pendingRecommendation) setShowRecommendation(true);
           break;
 
         case "tts_complete":
-          // Mark finalized so player fires onPlaybackComplete when queue drains
-          if (playerRef.current) playerRef.current.finalize();
+          // Don't finalize yet: last chunks may still be in flight. Wait 600ms after last chunk.
+          ttsCompleteReceivedRef.current = true;
+          scheduleFinalizeAfterChunks();
           break;
 
         case "interrupt_ack":
