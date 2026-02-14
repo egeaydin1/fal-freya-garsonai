@@ -185,10 +185,19 @@ class StreamingLLMBridge:
         
         return structured_data
     
+    # Turkish conjunctions that indicate a natural speech break
+    TURKISH_BREAK_WORDS = {'ve', 'ama', 'fakat', 'çünkü', 'ancak', 'veya', 'ya da'}
+    
     def _detect_sentence_boundary(self, text: str) -> tuple[bool, str]:
         """
-        Detect first complete spoken sentence in LLM JSON output.
-        Ignores JSON syntax and only looks inside spoken_response value.
+        Detect first TTS-ready chunk in LLM JSON output using micro-chunking.
+        
+        Triggers on:
+        - Sentence-ending punctuation (. ! ?)
+        - Commas (if ≥3 words before comma)
+        - Turkish conjunctions (ve, ama, fakat, çünkü, ancak)
+        
+        Only looks inside spoken_response JSON value.
         """
         if not text:
             return False, ""
@@ -197,10 +206,26 @@ class StreamingLLMBridge:
         spoken_match = re.search(r'"spoken_response"\s*:\s*"([^"]+)', text)
         if spoken_match:
             spoken_so_far = spoken_match.group(1)
-            # Look for sentence boundary in the spoken text
+            
+            # Priority 1: Sentence-ending punctuation (always trigger)
             sent_match = re.search(r'[.!?]', spoken_so_far)
             if sent_match:
                 return True, spoken_so_far[:sent_match.end()].strip()
+            
+            # Priority 2: Comma with enough context (≥3 words before comma)
+            comma_match = re.search(r',', spoken_so_far)
+            if comma_match:
+                before_comma = spoken_so_far[:comma_match.start()].strip()
+                if len(before_comma.split()) >= 3:
+                    return True, spoken_so_far[:comma_match.end()].strip()
+            
+            # Priority 3: Turkish conjunction boundary (≥3 words before conjunction)
+            words = spoken_so_far.split()
+            if len(words) >= 4:
+                for i, word in enumerate(words[3:], start=3):
+                    if word.lower().rstrip('.,!?') in self.TURKISH_BREAK_WORDS:
+                        chunk = ' '.join(words[:i])
+                        return True, chunk.strip()
         
         return False, ""
     

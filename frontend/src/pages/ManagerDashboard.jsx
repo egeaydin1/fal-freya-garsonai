@@ -5,6 +5,8 @@ import TablesList from "../components/TablesList";
 import ProductsList from "../components/ProductsList";
 import OrdersList from "../components/OrdersList";
 
+import { config } from "../config";
+
 export default function ManagerDashboard({ onLogout }) {
   const [activeTab, setActiveTab] = useState("tables");
   const [tables, setTables] = useState([]);
@@ -44,7 +46,7 @@ export default function ManagerDashboard({ onLogout }) {
   }, []);
 
   const setupWebSocket = () => {
-    const ws = new WebSocket(`ws://localhost:8000/ws/restaurant/${restaurantId}`);
+    const ws = new WebSocket(`${config.WS_URL}/ws/restaurant/${restaurantId}`);
     
     ws.onopen = () => {
       console.log("WebSocket bağlantısı kuruldu");
@@ -98,7 +100,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const fetchTables = async () => {
-    const res = await fetch("http://localhost:8000/api/restaurant/tables", {
+    const res = await fetch(`${config.API_BASE}/api/restaurant/tables`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.status === 401) {
@@ -112,7 +114,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const fetchProducts = async () => {
-    const res = await fetch("http://localhost:8000/api/menu/products", {
+    const res = await fetch(`${config.API_BASE}/api/menu/products`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.status === 401) {
@@ -126,7 +128,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const fetchAllergens = async () => {
-    const res = await fetch("http://localhost:8000/api/menu/allergens", {
+    const res = await fetch(`${config.API_BASE}/api/menu/allergens`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.status === 401) {
@@ -140,7 +142,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const fetchOrders = async () => {
-    const res = await fetch("http://localhost:8000/api/restaurant/orders", {
+    const res = await fetch(`${config.API_BASE}/api/restaurant/orders`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.status === 401) {
@@ -154,7 +156,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const fetchDailyRevenue = async () => {
-    const res = await fetch("http://localhost:8000/api/restaurant/revenue/daily", {
+    const res = await fetch(`${config.API_BASE}/api/restaurant/revenue/daily`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.ok) {
@@ -164,7 +166,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const createTable = async (tableNumber) => {
-    const res = await fetch("http://localhost:8000/api/restaurant/tables", {
+    const res = await fetch(`${config.API_BASE}/api/restaurant/tables`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -187,7 +189,7 @@ export default function ManagerDashboard({ onLogout }) {
 
   const deleteTable = async (id) => {
     const res = await fetch(
-      `http://localhost:8000/api/restaurant/tables/${id}`,
+      `${config.API_BASE}/api/restaurant/tables/${id}`,
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
@@ -200,7 +202,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const createAllergen = async (allergenData) => {
-    const res = await fetch("http://localhost:8000/api/menu/allergens", {
+    const res = await fetch(`${config.API_BASE}/api/menu/allergens`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -214,7 +216,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const deleteAllergen = async (id) => {
-    const res = await fetch(`http://localhost:8000/api/menu/allergens/${id}`, {
+    const res = await fetch(`${config.API_BASE}/api/menu/allergens/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -225,7 +227,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const createProduct = async (productData) => {
-    const res = await fetch("http://localhost:8000/api/menu/products", {
+    const res = await fetch(`${config.API_BASE}/api/menu/products`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -250,7 +252,7 @@ export default function ManagerDashboard({ onLogout }) {
   };
 
   const deleteProduct = async (id) => {
-    const res = await fetch(`http://localhost:8000/api/menu/products/${id}`, {
+    const res = await fetch(`${config.API_BASE}/api/menu/products/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -262,7 +264,7 @@ export default function ManagerDashboard({ onLogout }) {
 
   const updateOrderStatus = async (orderId, newStatus) => {
     const res = await fetch(
-      `http://localhost:8000/api/restaurant/orders/${orderId}/status`,
+      `${config.API_BASE}/api/restaurant/orders/${orderId}/status`,
       {
         method: "PATCH",
         headers: {
@@ -281,7 +283,7 @@ export default function ManagerDashboard({ onLogout }) {
 
   const markOrderPaid = async (orderId) => {
     const res = await fetch(
-      `http://localhost:8000/api/restaurant/orders/${orderId}/paid`,
+      `${config.API_BASE}/api/restaurant/orders/${orderId}/paid`,
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -299,7 +301,7 @@ export default function ManagerDashboard({ onLogout }) {
   const payAllTable = async (tableId) => {
     if (!confirm("Bu masanın tüm siparişlerini ödenmiş olarak işaretlemek istiyor musunuz?")) return;
     const res = await fetch(
-      `http://localhost:8000/api/restaurant/tables/${tableId}/pay-all`,
+      `${config.API_BASE}/api/restaurant/tables/${tableId}/pay-all`,
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },

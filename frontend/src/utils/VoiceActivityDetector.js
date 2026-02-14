@@ -5,7 +5,7 @@
 export class VoiceActivityDetector {
   constructor(options = {}) {
     this.silenceThreshold = options.silenceThreshold || 0.01; // Amplitude threshold
-    this.silenceDuration = options.silenceDuration || 800; // 0.8 seconds - aggressive for latency
+    this.silenceDuration = options.silenceDuration || 500; // 0.5 seconds - ultra-aggressive for low latency
     this.silenceStart = null;
     this.audioContext = null;
     this.analyser = null;

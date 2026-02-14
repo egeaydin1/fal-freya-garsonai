@@ -41,7 +41,7 @@ class LLMService:
             history_str = ""
             if conversation_history:
                 turns = []
-                for turn in conversation_history[-3:]:
+                for turn in conversation_history[-2:]:
                     turns.append(f"Müşteri: {turn['user']}\nGarson: {turn['assistant']}")
                 history_str = "\n".join(turns) + "\n\n"
             
@@ -65,7 +65,7 @@ class LLMService:
                         "prompt": prompt,
                         "model": self.llm_model,
                         "temperature": 0.7,
-                        "max_tokens": 200  # JSON response — enough for recommendation
+                        "max_tokens": 150  # Reduced for faster completion
                     }
                 )
             

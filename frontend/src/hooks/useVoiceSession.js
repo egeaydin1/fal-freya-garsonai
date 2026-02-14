@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback } from "react";
 import { VoiceActivityDetector } from "../utils/VoiceActivityDetector";
+import { config } from "../config";
 
 /**
  * Voice session modes for full-duplex streaming
@@ -251,8 +251,7 @@ export default function useVoiceSession() {
    */
   const initWebSocket = useCallback(
     (tableId, onAudioChunk) => {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/voice/${tableId}`;
+      const wsUrl = `${config.WS_URL}/ws/voice/${tableId}`;
 
       const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
@@ -341,7 +340,7 @@ export default function useVoiceSession() {
         // Initialize VAD
         vadRef.current = new VoiceActivityDetector({
           silenceThreshold: 0.01,
-          silenceDuration: 800, // Aggressive 800ms threshold
+          silenceDuration: 500, // Ultra-aggressive 500ms threshold for low latency
         });
 
         // Initialize audio analyser for VAD
@@ -355,7 +354,7 @@ export default function useVoiceSession() {
 
         vadRef.current.initializeAnalyzer(stream);
 
-        // Start VAD polling (check for silence every 100ms)
+        // Start VAD polling (check for silence every 50ms for faster detection)
         const vadIntervalId = setInterval(() => {
           if (vadRef.current) {
             const vadStatus = vadRef.current.analyzeAudioLevel();
@@ -365,7 +364,7 @@ export default function useVoiceSession() {
               stopListening();
             }
           }
-        }, 100);
+        }, 50);
 
         // Store interval ID for cleanup
         vadRef.current.intervalId = vadIntervalId;

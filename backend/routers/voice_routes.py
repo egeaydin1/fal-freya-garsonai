@@ -187,12 +187,40 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                         session.state = "IDLE"
                         continue
                     
-                    # If we have buffered audio, do final STT
-                    if session.audio_buffer:
+                    # ═══════════════════════════════════════════════════════
+                    # SPECULATIVE EXECUTION: Start LLM on partial transcript
+                    # while final STT runs in parallel
+                    # ═══════════════════════════════════════════════════════
+                    
+                    speculative_transcript = session.partial_transcript.strip()
+                    has_speculative = len(speculative_transcript.split()) >= 3
+                    speculative_llm_task = None
+                    
+                    if has_speculative:
+                        print(f"🚀 SPECULATIVE: Starting LLM on partial transcript: '{speculative_transcript}'")
+                        session.state = "GENERATING_LLM"
+                        await websocket.send_json({"type": "status", "message": "thinking"})
+                        
+                        # Fire speculative LLM as a background task
+                        speculative_llm_task = asyncio.create_task(
+                            llm_bridge.process_stream(
+                                transcript=speculative_transcript,
+                                menu_context=menu_context,
+                                start_time=session.start_time,
+                                websocket_send_json=websocket.send_json,
+                                websocket_send_bytes=websocket.send_bytes,
+                                session_id=session.session_id,
+                                products=products
+                            )
+                        )
+                    else:
                         session.state = "PROCESSING_STT"
                         await websocket.send_json({"type": "status", "message": "processing"})
-                        
-                        # Final STT with accumulated audio
+                    
+                    # Run final STT in parallel with speculative LLM
+                    final_transcript = speculative_transcript  # fallback
+                    
+                    if session.audio_buffer:
                         audio_data = bytes(session.audio_buffer)
                         
                         try:
@@ -208,79 +236,144 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                         # Check if transcription was skipped or failed
                         if final_result.get("skipped"):
                             print(f"⏭️ Skipped transcription (audio too small)")
-                            session.audio_buffer.clear()
-                            session.state = "IDLE"
-                            continue
-                        
-                        if final_result.get("error"):
+                            if not has_speculative:
+                                if speculative_llm_task:
+                                    speculative_llm_task.cancel()
+                                session.audio_buffer.clear()
+                                session.state = "IDLE"
+                                continue
+                        elif final_result.get("error"):
                             print(f"⚠️ STT failed: {final_result.get('error')}")
-                            session.audio_buffer.clear()
-                            session.state = "IDLE"
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": "Ses tanıma servisi geçici olarak kullanılamıyor. Lütfen tekrar deneyin."
-                            })
-                            continue
-                        
-                        if final_result and final_result.get("text"):
+                            if not has_speculative:
+                                if speculative_llm_task:
+                                    speculative_llm_task.cancel()
+                                session.audio_buffer.clear()
+                                session.state = "IDLE"
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": "Ses tanıma servisi geçici olarak kullanılamıyor. Lütfen tekrar deneyin."
+                                })
+                                continue
+                        elif final_result and final_result.get("text"):
                             final_text = final_result["text"]
-                            
-                            # Merge with partial transcript
                             full_transcript = partial_stt.merge_transcripts(
                                 session.partial_transcript,
                                 final_text
                             )
-                            
-                            session.partial_transcript = full_transcript
-                            print(f"📝 Final transcript: '{full_transcript}'")
+                            final_transcript = full_transcript.strip()
+                            print(f"📝 Final transcript: '{final_transcript}'")
                             
                             await websocket.send_json({
                                 "type": "transcript",
-                                "text": full_transcript,
+                                "text": final_transcript,
                                 "is_final": True
                             })
                     
-                    # If we already have a transcript (from partial STT), use it
-                    transcript = session.partial_transcript.strip()
-                    
-                    if not transcript:
+                    if not final_transcript:
                         print("⏭️ No speech detected, returning to IDLE")
+                        if speculative_llm_task:
+                            speculative_llm_task.cancel()
                         session.state = "IDLE"
                         continue
                     
-                    # Start LLM+TTS pipeline
-                    session.state = "GENERATING_LLM"
-                    await websocket.send_json({
-                        "type": "status",
-                        "message": "thinking"
-                    })
+                    # ═══════════════════════════════════════════════════════
+                    # DECISION: Use speculative result or restart with final
+                    # ═══════════════════════════════════════════════════════
                     
-                    try:
-                        structured_data = await llm_bridge.process_stream(
-                            transcript=transcript,
-                            menu_context=menu_context,
-                            start_time=session.start_time,
-                            websocket_send_json=websocket.send_json,
-                            websocket_send_bytes=websocket.send_bytes,
-                            session_id=session.session_id,
-                            products=products
-                        )
+                    if speculative_llm_task and has_speculative:
+                        # Compare partial vs final transcript
+                        def _word_overlap(a, b):
+                            words_a = set(a.lower().split())
+                            words_b = set(b.lower().split())
+                            if not words_a or not words_b:
+                                return 0.0
+                            overlap = words_a & words_b
+                            return len(overlap) / max(len(words_a), len(words_b))
                         
-                        # Transition to TTS streaming
-                        session.state = "STREAMING_TTS"
+                        overlap = _word_overlap(speculative_transcript, final_transcript)
+                        print(f"🔍 Transcript overlap: {overlap:.0%} (speculative: '{speculative_transcript}' vs final: '{final_transcript}')")
                         
-                        # Reset for next turn
-                        session.partial_transcript = ""
-                        session.audio_buffer.clear()
-                        session.state = "IDLE"
-                        
-                    except Exception as e:
-                        print(f"❌ LLM/TTS error: {e}")
+                        if overlap >= 0.7:
+                            # Good enough — let speculative LLM finish
+                            print(f"✅ SPECULATIVE HIT: Using speculative LLM result (overlap {overlap:.0%})")
+                            try:
+                                structured_data = await speculative_llm_task
+                                session.state = "STREAMING_TTS"
+                                session.partial_transcript = ""
+                                session.audio_buffer.clear()
+                                session.state = "IDLE"
+                            except Exception as e:
+                                print(f"❌ Speculative LLM/TTS error: {e}")
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": str(e)
+                                })
+                                session.state = "IDLE"
+                        else:
+                            # Transcripts diverged — cancel speculative, restart with final
+                            print(f"🔄 SPECULATIVE MISS: Restarting LLM with final transcript (overlap {overlap:.0%})")
+                            speculative_llm_task.cancel()
+                            try:
+                                await speculative_llm_task
+                            except (asyncio.CancelledError, Exception):
+                                pass
+                            
+                            # Cancel any TTS that may have started
+                            await llm_bridge.cancel_active_streams(session.session_id)
+                            
+                            session.state = "GENERATING_LLM"
+                            await websocket.send_json({"type": "status", "message": "thinking"})
+                            
+                            try:
+                                structured_data = await llm_bridge.process_stream(
+                                    transcript=final_transcript,
+                                    menu_context=menu_context,
+                                    start_time=session.start_time,
+                                    websocket_send_json=websocket.send_json,
+                                    websocket_send_bytes=websocket.send_bytes,
+                                    session_id=session.session_id,
+                                    products=products
+                                )
+                                session.state = "STREAMING_TTS"
+                                session.partial_transcript = ""
+                                session.audio_buffer.clear()
+                                session.state = "IDLE"
+                            except Exception as e:
+                                print(f"❌ LLM/TTS error: {e}")
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": str(e)
+                                })
+                                session.state = "IDLE"
+                    else:
+                        # No speculative LLM — start fresh
+                        session.state = "GENERATING_LLM"
                         await websocket.send_json({
-                            "type": "error",
-                            "message": str(e)
+                            "type": "status",
+                            "message": "thinking"
                         })
-                        session.state = "IDLE"
+                        
+                        try:
+                            structured_data = await llm_bridge.process_stream(
+                                transcript=final_transcript,
+                                menu_context=menu_context,
+                                start_time=session.start_time,
+                                websocket_send_json=websocket.send_json,
+                                websocket_send_bytes=websocket.send_bytes,
+                                session_id=session.session_id,
+                                products=products
+                            )
+                            session.state = "STREAMING_TTS"
+                            session.partial_transcript = ""
+                            session.audio_buffer.clear()
+                            session.state = "IDLE"
+                        except Exception as e:
+                            print(f"❌ LLM/TTS error: {e}")
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": str(e)
+                            })
+                            session.state = "IDLE"
             else:
                 print(f"⚠️ Unhandled data type - data keys: {data.keys() if isinstance(data, dict) else 'not a dict'}")
                     

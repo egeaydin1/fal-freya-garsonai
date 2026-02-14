@@ -1,5 +1,6 @@
 // API service for frontend
-const API_BASE = "http://localhost:8000";
+import { config } from "../config";
+const API_BASE = config.API_BASE;
 
 export const api = {
   // Auth
@@ -116,6 +117,6 @@ export const api = {
 
   // WebSocket voice connection
   connectVoice: (qrToken) => {
-    return new WebSocket(`ws://localhost:8000/ws/voice/${qrToken}`);
+    return new WebSocket(`${config.WS_URL}/ws/voice/${qrToken}`);
   },
 };

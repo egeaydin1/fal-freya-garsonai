@@ -1,23 +1,31 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { config } from "../config";
 
-export default function LoginPage({ onLogin }) {
+export default function LoginPage({ onLoginSuccess }) {
   const navigate = useNavigate();
-  const [isRegister, setIsRegister] = useState(false);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [isLogin, setIsLogin] = useState(true);
+  const [formData, setFormData] = useState({ name: "", email: "", password: "" });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prevData) => ({ ...prevData, [name]: value }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
     setError("");
 
-    const endpoint = isRegister ? "/api/auth/register" : "/api/auth/login";
-    const body = isRegister ? { name, email, password } : { email, password };
+    const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
+    const body = isLogin
+      ? { username: formData.email, password: formData.password }
+      : { name: formData.name, email: formData.email, password: formData.password };
 
     try {
-      const res = await fetch(`http://localhost:8000${endpoint}`, {
+      const res = await fetch(`${config.API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

@@ -29,7 +29,7 @@ class PartialSTTService:
         self.last_result = ""
         self.processing_semaphore = asyncio.Semaphore(4)  # Allow 4 concurrent STT calls
         self.last_request_time = 0
-        self.min_request_interval = 0.15  # Minimum 150ms between requests
+        self.min_request_interval = 0.10  # Minimum 100ms between requests
     
     async def transcribe_partial(
         self, 
@@ -85,8 +85,8 @@ class PartialSTTService:
                 )
                 
                 # Call Freya STT with retry logic for 500 errors
-                max_retries = 3  # Increased from 2
-                retry_delay = 2.0  # Increased from 1.0
+                max_retries = 2  # Reduced from 3 for lower worst-case latency
+                retry_delay = 1.0  # Reduced from 2.0
                 last_error = None
                 
                 for attempt in range(max_retries + 1):

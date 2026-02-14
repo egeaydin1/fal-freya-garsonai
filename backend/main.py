@@ -6,10 +6,9 @@ from core.auth import get_current_restaurant
 from models.models import Restaurant
 from services.tts_warmer import start_tts_warmer, stop_tts_warmer
 from services.tts_cache import get_tts_cache
+from services.stt_warmer import start_stt_warmer, stop_stt_warmer
 from websocket.manager import manager
 from sqlalchemy.orm import Session
-# Note: STT warmer disabled - real requests keep container warm
-# from services.stt_warmer import start_stt_warmer, stop_stt_warmer
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -31,16 +30,16 @@ async def lifespan(app: FastAPI):
     tts_cache = get_tts_cache()
     asyncio.create_task(tts_cache.warm_cache())
     
-    # STT warmer disabled - real user requests keep it warm enough
-    # print("🚀 Starting STT warmer...")
-    # start_stt_warmer(interval=30)
+    # STT warmer — keeps container hot, prevents cold-start latency
+    print("🚀 Starting STT warmer...")
+    start_stt_warmer(interval=45)
     
     yield
     
     # Shutdown: Stop warmers
     print("🛑 Stopping warmers...")
     stop_tts_warmer()
-    # stop_stt_warmer()
+    stop_stt_warmer()
 
 
 app = FastAPI(

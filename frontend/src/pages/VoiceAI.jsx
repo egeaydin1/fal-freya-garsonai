@@ -182,8 +182,8 @@ export default function VoiceAI() {
         }
       };
       
-      // Start recording with 500ms chunks
-      mediaRecorder.start(500);
+      // Start recording with 250ms chunks (reduced from 500ms for lower latency)
+      mediaRecorder.start(250);
       
       console.log("✅ Full-duplex voice session started");
     } catch (err) {

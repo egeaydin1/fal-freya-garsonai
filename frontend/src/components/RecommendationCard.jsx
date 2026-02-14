@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 
-const API_BASE = "http://localhost:8000";
+import { config } from "../config";
+const API_BASE = config.API_BASE;
 
 /**
  * Apple-style animated recommendation popup

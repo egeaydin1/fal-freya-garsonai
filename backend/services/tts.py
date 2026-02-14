@@ -37,7 +37,7 @@ class TTSService:
                     arguments={
                         "input": text,
                         "voice": "zeynep",
-                        "speed": 1.15
+                        "speed": 1
                     },
                     path="/stream"
                 )

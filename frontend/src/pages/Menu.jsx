@@ -5,6 +5,7 @@ import Cart from "../components/Cart";
 import RecommendationPopup from "../components/RecommendationCard";
 import { VoiceActivityDetector } from "../utils/VoiceActivityDetector";
 import { StreamingAudioPlayer } from "../utils/StreamingAudioPlayer";
+import { config } from "../config";
 
 // ── Suggestion chips for the voice panel ──
 const SUGGESTIONS = [
@@ -84,7 +85,7 @@ export default function Menu() {
   const connectWebSocket = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
-    const ws = new WebSocket(`ws://localhost:8000/ws/voice/${qrToken}`);
+    const ws = new WebSocket(`${config.WS_URL}/ws/voice/${qrToken}`);
     wsRef.current = ws;
 
     ws.onmessage = async (event) => {
@@ -385,7 +386,7 @@ export default function Menu() {
 
     try {
       const res = await fetch(
-        `http://localhost:8000/api/menu/${qrToken}/checkout`,
+        `${config.API_BASE}/api/menu/${qrToken}/checkout`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -408,7 +409,7 @@ export default function Menu() {
   const requestCheck = async () => {
     try {
       const res = await fetch(
-        `http://localhost:8000/api/menu/${qrToken}/request-check`,
+        `${config.API_BASE}/api/menu/${qrToken}/request-check`,
         { method: "POST" },
       );
       if (res.ok) {
@@ -424,7 +425,7 @@ export default function Menu() {
 
   const fetchMenu = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/menu/${qrToken}`);
+      const res = await fetch(`${config.API_BASE}/api/menu/${qrToken}`);
       if (res.ok) setProducts(await res.json());
     } catch (err) {
       console.error("Menu fetch error:", err);
