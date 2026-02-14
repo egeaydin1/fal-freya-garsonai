@@ -5,8 +5,10 @@
 export class VoiceActivityDetector {
   constructor(options = {}) {
     this.silenceThreshold = options.silenceThreshold || 0.01; // Amplitude threshold
-    this.silenceDuration = options.silenceDuration || 500; // 0.5 seconds - ultra-aggressive for low latency
+    this.silenceDuration = options.silenceDuration || 500; // 0.5 seconds
     this.silenceStart = null;
+    this.startTime = Date.now();
+    this.gracePeriod = options.gracePeriod || 2000; // 2 seconds grace period
     this.audioContext = null;
     this.analyser = null;
     this.dataArray = null;
@@ -35,6 +37,11 @@ export class VoiceActivityDetector {
    */
   analyzeAudioLevel() {
     if (!this.analyser || !this.dataArray) {
+      return "SPEAKING";
+    }
+
+    // Ignore silence detection during grace period
+    if (Date.now() - this.startTime < this.gracePeriod) {
       return "SPEAKING";
     }
 
