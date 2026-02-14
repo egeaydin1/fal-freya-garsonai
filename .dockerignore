@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Env (use Railway Variables instead)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.venv
+venv
+env
+.pytest_cache
+.coverage
+htmlcov
+
+# Node
+node_modules
+frontend/node_modules
+frontend/dist
+npm-debug.log
+
+# Docs / misc
+*.md
+!README.md
+.DS_Store
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore

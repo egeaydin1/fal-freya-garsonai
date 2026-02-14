@@ -1,5 +1,10 @@
+from pathlib import Path
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.staticfiles import StaticFiles as StarletteStaticFiles
+
 from routers import  voice_routes, auth_routes, restaurant_routes, menu_routes
 from core.database import engine, Base, get_db
 from core.auth import get_current_restaurant
@@ -11,6 +16,10 @@ from websocket.manager import manager
 from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
 import asyncio
+
+# When running in Docker (e.g. Railway), frontend is built into ./static
+STATIC_DIR = Path(__file__).parent / "static"
+SERVE_FRONTEND = STATIC_DIR.is_dir()
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -48,20 +57,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS
+# CORS (allow Railway and any public domain in production)
+_cors_origins = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:80",
+    "http://127.0.0.1",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:80",
+]
+if SERVE_FRONTEND:
+    _cors_origins.append("*")  # Railway/public URLs
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost",
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:80",
-        "http://127.0.0.1",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:80",
-    ],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=not SERVE_FRONTEND,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -73,17 +85,11 @@ app.include_router(menu_routes.router)
 app.include_router(voice_routes.router)
 # app.include_router(ai_routes.router)  # Legacy, keep for compatibility
 
-@app.get("/")
-def root():
-    return {
-        "app": "GarsonAI",
-        "version": "1.0.0",
-        "status": "running"
-    }
-
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+
 @app.websocket("/ws/restaurant/{restaurant_id}")
 async def websocket_restaurant_endpoint(
     websocket: WebSocket,
@@ -98,3 +104,32 @@ async def websocket_restaurant_endpoint(
             data = await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect_restaurant(websocket, restaurant_id)
+
+
+# Serve frontend static files when built (Railway/Docker)
+if SERVE_FRONTEND:
+    from fastapi.responses import FileResponse
+
+    app.mount("/assets", StarletteStaticFiles(directory=STATIC_DIR / "assets", html=False), name="assets")
+
+    @app.get("/")
+    def root():
+        return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        """Serve static file or index.html for SPA client-side routes."""
+        if full_path.startswith("api/") or full_path.startswith("ws/"):
+            raise StarletteHTTPException(404)
+        path = STATIC_DIR / full_path
+        if path.is_file():
+            return FileResponse(path)
+        return FileResponse(STATIC_DIR / "index.html")
+else:
+    @app.get("/")
+    def root():
+        return {
+            "app": "GarsonAI",
+            "version": "1.0.0",
+            "status": "running",
+        }
