@@ -6,6 +6,8 @@ export class StreamingAudioPlayer {
     this.isPlaying = false;
     this.nextStartTime = 0;
     this.activeSource = null; // Track current playing node
+    this.onPlaybackComplete = options.onPlaybackComplete || (() => {});
+    this.finalized = false; // true when no more chunks coming (tts_complete)
   }
 
   /**
@@ -90,7 +92,13 @@ export class StreamingAudioPlayer {
     if (this.audioQueue.length === 0) {
       this.isPlaying = false;
       this.activeSource = null;
-      console.log("⏸️ Playback paused (waiting for chunks)");
+      if (this.finalized) {
+        this.finalized = false;
+        console.log("🔇 Playback queue drained → onPlaybackComplete");
+        this.onPlaybackComplete();
+      } else {
+        console.log("⏸️ Playback paused (waiting for chunks)");
+      }
       return;
     }
 
@@ -153,7 +161,8 @@ export class StreamingAudioPlayer {
     this.isPlaying = false;
     this.audioQueue = [];
     this.nextStartTime = 0;
-    
+    this.finalized = false;
+
     if (this.activeSource) {
       try { this.activeSource.stop(); } catch (e) {}
       this.activeSource = null;
@@ -163,9 +172,15 @@ export class StreamingAudioPlayer {
   }
 
   /**
-   * Finalize playback (no more chunks coming)
+   * Finalize playback (no more chunks coming). onPlaybackComplete fires when queue drains.
    */
   finalize() {
+    this.finalized = true;
     console.log("✅ Streaming finalized, playing remaining chunks");
+    // If queue already empty (e.g. no chunks or already played), fire immediately
+    if (this.audioQueue.length === 0 && !this.isPlaying) {
+      this.finalized = false;
+      this.onPlaybackComplete();
+    }
   }
 }
