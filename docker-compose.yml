@@ -9,22 +9,40 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d garsonai"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot service: seeds demo restaurant + menu on first run
+  seed:
+    build: ./backend
+    command: ["python", "seed.py"]
+    environment:
+      DATABASE_URL: postgresql://user:password@database:5432/garsonai
+      SECRET_KEY: ${SECRET_KEY:-demo-secret-key-change-me}
+      FAL_KEY: ${FAL_KEY:-placeholder}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-placeholder}
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: "no"
 
   backend:
     build: ./backend
     environment:
       DATABASE_URL: postgresql://user:password@database:5432/garsonai
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY:-demo-secret-key-change-me}
       FAL_KEY: ${FAL_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
     depends_on:
       database:
         condition: service_healthy
+      seed:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
+    restart: unless-stopped
 
   frontend:
     build:
@@ -36,6 +54,7 @@ services:
       - "80:80"
     depends_on:
       - backend
+    restart: unless-stopped
 
 volumes:
   postgres_data:

@@ -386,13 +386,24 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
         llm_bridge.clear_session_history(session.session_id)
         await session_manager.remove_session(session.session_id)
         manager.disconnect(websocket, table_id)
+    except RuntimeError as e:
+        # "Cannot call receive once a disconnect message has been received"
+        print(f"🔌 WebSocket already disconnected: {session.session_id} ({e})")
+        if partial_stt_task and not partial_stt_task.done():
+            partial_stt_task.cancel()
+        llm_bridge.clear_session_history(session.session_id)
+        await session_manager.remove_session(session.session_id)
+        manager.disconnect(websocket, table_id)
     except Exception as e:
         print(f"❌ WebSocket error: {e}")
         import traceback
         traceback.print_exc()
-        await websocket.send_json({
-            "type": "error",
-            "message": str(e)
-        })
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+        except Exception:
+            pass  # Connection already closed
         await session_manager.remove_session(session.session_id)
         manager.disconnect(websocket, table_id)

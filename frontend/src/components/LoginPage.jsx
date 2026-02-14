@@ -2,27 +2,24 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { config } from "../config";
 
-export default function LoginPage({ onLoginSuccess }) {
+export default function LoginPage({ onLogin }) {
   const navigate = useNavigate();
-  const [isLogin, setIsLogin] = useState(true);
-  const [formData, setFormData] = useState({ name: "", email: "", password: "" });
+  const [isRegister, setIsRegister] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prevData) => ({ ...prevData, [name]: value }));
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
-    const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
-    const body = isLogin
-      ? { username: formData.email, password: formData.password }
-      : { name: formData.name, email: formData.email, password: formData.password };
+    const endpoint = isRegister ? "/api/auth/register" : "/api/auth/login";
+    const body = isRegister
+      ? { name, email, password }
+      : { email, password };
 
     try {
       const res = await fetch(`${config.API_BASE}${endpoint}`, {
@@ -41,6 +38,8 @@ export default function LoginPage({ onLoginSuccess }) {
       }
     } catch (err) {
       setError("Server error");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -85,8 +84,8 @@ export default function LoginPage({ onLoginSuccess }) {
 
             {error && <p className="text-error text-sm">{error}</p>}
 
-            <button type="submit" className="btn btn-primary w-full">
-              {isRegister ? "Register" : "Login"}
+            <button type="submit" className="btn btn-primary w-full" disabled={loading}>
+              {loading ? "..." : isRegister ? "Register" : "Login"}
             </button>
           </form>
 
