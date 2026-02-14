@@ -46,18 +46,33 @@ export default function Menu() {
   const vadRef = useRef(null);
   const vadIntervalRef = useRef(null);
   const playerRef = useRef(null);
+  const startListeningRef = useRef(null);
+  const showVoiceRef = useRef(showVoice);
 
-  // Initialize player with playback-complete callback
+  useEffect(() => {
+    showVoiceRef.current = showVoice;
+  }, [showVoice]);
+
+  // Initialize player with playback-complete callback (speak loop: auto-restart listening)
   useEffect(() => {
     const player = new StreamingAudioPlayer({
       onPlaybackComplete: () => {
-        console.log("🔇 Playback complete → ready to listen");
+        console.log("🔇 Playback complete → ready to listen (speak loop)");
         isPlayingRef.current = false;
         setVoiceState("idle");
-        // Notify backend that playback is done
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: "playback_complete" }));
         }
+        // Speak loop: automatically start listening again when voice panel is open
+        setTimeout(() => {
+          if (
+            startListeningRef.current &&
+            wsRef.current?.readyState === WebSocket.OPEN &&
+            showVoiceRef.current
+          ) {
+            startListeningRef.current();
+          }
+        }, 400);
       },
     });
     playerRef.current = player;
@@ -189,7 +204,7 @@ export default function Menu() {
     };
   }, [qrToken]);
 
-  // ── Voice recording ──
+  // ── Voice recording (ref for speak-loop callback) ──
   const startListening = async () => {
     // DON'T listen while playing audio
     if (isPlayingRef.current || voiceState === "playing") {
@@ -294,6 +309,7 @@ export default function Menu() {
       setVoiceState("idle");
     }
   };
+  startListeningRef.current = startListening;
 
   // ── Stop recording and send audio_end signal ──
   const stopListening = () => {

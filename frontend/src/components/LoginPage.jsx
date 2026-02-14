@@ -56,31 +56,51 @@ export default function LoginPage({ onLogin }) {
 
           <form onSubmit={handleSubmit} className="space-y-4 mt-4">
             {isRegister && (
-              <input
-                type="text"
-                placeholder="Restaurant Name"
-                className="input input-bordered w-full"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
+              <label className="form-control w-full">
+                <span className="label-text">Restaurant adı</span>
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="Restaurant Name"
+                  className="input input-bordered w-full input-md text-base"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  autoComplete="organization"
+                />
+              </label>
             )}
-            <input
-              type="email"
-              placeholder="Email"
-              className="input input-bordered w-full"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              className="input input-bordered w-full"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <label className="form-control w-full">
+              <span className="label-text">Email</span>
+              <input
+                type="email"
+                name="email"
+                placeholder="ornek@email.com"
+                className="input input-bordered w-full input-md text-base"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </label>
+            <label className="form-control w-full">
+              <span className="label-text">Şifre</span>
+              <input
+                type="password"
+                name="password"
+                placeholder="••••••••"
+                className="input input-bordered w-full input-md text-base"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete={isRegister ? "new-password" : "current-password"}
+              />
+            </label>
+            {!isRegister && (
+              <p className="text-xs text-base-content/60">
+                Demo: demo@garsonai.com / demo1234
+              </p>
+            )}
 
             {error && <p className="text-error text-sm">{error}</p>}
 
