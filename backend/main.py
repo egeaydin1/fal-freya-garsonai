@@ -39,9 +39,9 @@ async def lifespan(app: FastAPI):
     tts_cache = get_tts_cache()
     asyncio.create_task(tts_cache.warm_cache())
     
-    # STT warmer — keeps container hot, prevents cold-start latency
-    print("🚀 Starting STT warmer...")
-    start_stt_warmer(interval=45)
+    # STT warmer disabled: FAL freya-stt often returns 500 on result fetch; pinging adds load and noise
+    # print("🚀 Starting STT warmer...")
+    # start_stt_warmer(interval=45)
     
     yield
     

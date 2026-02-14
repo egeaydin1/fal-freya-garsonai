@@ -267,7 +267,7 @@ async def voice_websocket(websocket: WebSocket, table_id: str, db: Session = Dep
                                 session.state = "IDLE"
                                 await websocket.send_json({
                                     "type": "error",
-                                    "message": "Ses tanıma servisi geçici olarak kullanılamıyor. Lütfen tekrar deneyin."
+                                    "message": "Ses tanıma servisi geçici olarak yanıt vermiyor (sunucu hatası). Lütfen kısa süre sonra tekrar deneyin."
                                 })
                                 continue
                         elif final_result and final_result.get("text"):

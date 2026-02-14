@@ -89,10 +89,11 @@ class PartialSTTService:
                     file_name=f"audio_{upload_id}.webm"
                 )
                 
-                # Call Freya STT with retry logic for 500 errors
-                max_retries = 2  # Reduced from 3 for lower worst-case latency
-                retry_delay = 1.0  # Reduced from 2.0
+                # Call Freya STT with retry logic for 500 errors (FAL STT often returns 500 on result fetch)
+                max_retries = 3  # 4 attempts total; FAL freya-stt can be flaky
+                retry_delay = 1.5
                 last_error = None
+                result = None
                 
                 for attempt in range(max_retries + 1):
                     try:
@@ -111,11 +112,11 @@ class PartialSTTService:
                         last_error = e
                         error_str = str(e)
                         
-                        # Check if it's a 500 error (server error)
+                        # Check if it's a 500 error (server error) — FAL STT returns this when result fetch fails
                         if "500" in error_str or "internal_server_error" in error_str.lower():
                             if attempt < max_retries:
-                                wait_time = retry_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
-                                print(f"⚠️ STT 500 error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                                wait_time = retry_delay * (2 ** attempt)
+                                print(f"⚠️ STT 500 error, retrying in {wait_time:.0f}s (attempt {attempt + 1}/{max_retries + 1})")
                                 await asyncio.sleep(wait_time)
                                 continue
                         
@@ -123,7 +124,7 @@ class PartialSTTService:
                         raise
                 
                 # If we exhausted retries, raise the last error
-                if last_error and attempt >= max_retries:
+                if result is None and last_error is not None:
                     raise last_error
                 
                 text = self._extract_text(result)
