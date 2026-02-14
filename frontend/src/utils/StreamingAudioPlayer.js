@@ -8,6 +8,7 @@ export class StreamingAudioPlayer {
     this.activeSource = null; // Track current playing node
     this.onPlaybackComplete = options.onPlaybackComplete || (() => {});
     this.finalized = false; // true when no more chunks coming (tts_complete)
+    this.pendingChunks = 0; // Track chunks currently being decoded
   }
 
   /**
@@ -34,6 +35,7 @@ export class StreamingAudioPlayer {
    * @param {ArrayBuffer} pcmBytes - Raw PCM16 audio data
    */
   async addPCMChunk(pcmBytes) {
+    this.pendingChunks++;
     if (!this.audioContext) {
       await this.initialize();
     }
@@ -63,6 +65,13 @@ export class StreamingAudioPlayer {
       );
     } catch (error) {
       console.error("❌ Error processing PCM chunk:", error);
+    } finally {
+      this.pendingChunks--;
+      // If we finished decoding the last chunk and we were waiting for it
+      if (this.finalized && this.pendingChunks === 0 && this.audioQueue.length === 0 && !this.isPlaying) {
+         this.finalized = false;
+         this.onPlaybackComplete();
+      }
     }
   }
 
@@ -92,7 +101,8 @@ export class StreamingAudioPlayer {
     if (this.audioQueue.length === 0) {
       this.isPlaying = false;
       this.activeSource = null;
-      if (this.finalized) {
+      // Only complete if finalized AND no chunks are being decoded
+      if (this.finalized && this.pendingChunks === 0) {
         this.finalized = false;
         console.log("🔇 Playback queue drained → onPlaybackComplete");
         this.onPlaybackComplete();
@@ -162,6 +172,7 @@ export class StreamingAudioPlayer {
     this.audioQueue = [];
     this.nextStartTime = 0;
     this.finalized = false;
+    this.pendingChunks = 0;
 
     if (this.activeSource) {
       try { this.activeSource.stop(); } catch (e) {}
@@ -177,8 +188,8 @@ export class StreamingAudioPlayer {
   finalize() {
     this.finalized = true;
     console.log("✅ Streaming finalized, playing remaining chunks");
-    // If queue already empty (e.g. no chunks or already played), fire immediately
-    if (this.audioQueue.length === 0 && !this.isPlaying) {
+    // If queue already empty (e.g. no chunks or already played) AND no pending decodes, fire immediately
+    if (this.audioQueue.length === 0 && !this.isPlaying && this.pendingChunks === 0) {
       this.finalized = false;
       this.onPlaybackComplete();
     }

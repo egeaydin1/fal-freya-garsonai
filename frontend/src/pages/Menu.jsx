@@ -48,9 +48,31 @@ export default function Menu() {
   const playerRef = useRef(null);
   const startListeningRef = useRef(null);
   const showVoiceRef = useRef(showVoice);
+  const voiceStateRef = useRef(voiceState);
 
   useEffect(() => {
     showVoiceRef.current = showVoice;
+  }, [showVoice]);
+
+  useEffect(() => {
+    voiceStateRef.current = voiceState;
+  }, [voiceState]);
+
+  // ── Cleanup stream when voice panel closes ──
+  useEffect(() => {
+    if (!showVoice) {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      // Also stop player if playing
+      if (playerRef.current) {
+         playerRef.current.stop();
+      }
+      if (voiceState !== "idle") {
+        setVoiceState("idle");
+      }
+    }
   }, [showVoice]);
 
   // Initialize player with playback-complete callback (speak loop: auto-restart listening)
@@ -60,19 +82,23 @@ export default function Menu() {
         console.log("🔇 Playback complete → ready to listen (speak loop)");
         isPlayingRef.current = false;
         setVoiceState("idle");
+        
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: "playback_complete" }));
         }
+
         // Speak loop: automatically start listening again when voice panel is open
+        // Increased delay to 500ms to prevent echo (mic picking up last TTS sounds)
         setTimeout(() => {
           if (
             startListeningRef.current &&
             wsRef.current?.readyState === WebSocket.OPEN &&
             showVoiceRef.current
           ) {
+            console.log("🔄 Auto-restarting listener...");
             startListeningRef.current();
           }
-        }, 400);
+        }, 500);
       },
     });
     playerRef.current = player;
@@ -207,7 +233,7 @@ export default function Menu() {
   // ── Voice recording (ref for speak-loop callback) ──
   const startListening = async () => {
     // DON'T listen while playing audio
-    if (isPlayingRef.current || voiceState === "playing") {
+    if (isPlayingRef.current || voiceStateRef.current === "playing") {
       console.log("⚠️ Cannot listen while playing");
       return;
     }
@@ -235,22 +261,25 @@ export default function Menu() {
       // Reset player for new session
       playerRef.current.reset();
 
-      // Get audio stream with optimized constraints
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1, // Mono
-          sampleRate: 16000, // 16kHz (STT native)
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      streamRef.current = stream;
+      // Get audio stream (reuse if available to support continuous loop on mobile)
+      let stream = streamRef.current;
+      if (!stream || !stream.getAudioTracks().some((t) => t.readyState === "live")) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1, // Mono
+            sampleRate: 16000, // 16kHz (STT native)
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        streamRef.current = stream;
+      }
 
       // Initialize VAD with 800ms aggressive threshold
       const vad = new VoiceActivityDetector({
         silenceThreshold: 0.01,
-        silenceDuration: 800,
+        silenceDuration: 1200,
       });
       vad.initializeAnalyzer(stream);
       vad.reset();
@@ -324,11 +353,14 @@ export default function Menu() {
       mediaRecorderRef.current.stop();
     }
 
-    // Stop media stream tracks
+    // Do NOT stop media stream tracks here to allow quick restart (speak loop)
+    // Stream will be stopped when component unmounts or voice panel closes
+    /*
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+    */
 
     // Cleanup VAD
     if (vadRef.current) {
@@ -344,6 +376,8 @@ export default function Menu() {
 
     setVoiceState("processing");
   };
+  // Update ref on every render to capture latest closure
+  startListeningRef.current = startListening;
 
   // ━━━ Interrupt AI (barge-in) ━━━
   const handleInterrupt = () => {
